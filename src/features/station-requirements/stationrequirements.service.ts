@@ -7,30 +7,118 @@ import {
   StationRequirementItem,
   CreateSubmissionInput,
   GetSubmissionsQuery,
+  CASE_CATEGORIES,
+  CaseCategory,
+  CaseName,
 } from './stationrequirements.types';
 
 // Type for database row
 type DbRow = Record<string, unknown>;
 
 // ============================================================
-// FIXED: Map database row to StationRequirementSubmission with submitter details
+// CATEGORY MAPPING - Map frontend category names to backend category names
+// ============================================================
+const CATEGORY_MAP: Record<string, string> = {
+  // Frontend format (with "CASES" suffix) -> Backend format (without suffix)
+  'CRIMINAL CASES': 'Criminal',
+  'ANTI-CORRUPTION AND ECONOMIC CRIMES CASES': 'Anti-Corruption & Economic Crimes',
+  'COMMERCIAL AND TAX CASES': 'Commercial & Tax',
+  'ADMIRALTY': 'Admiralty',
+  'CIVIL CASES': 'Civil',
+  'FAMILY CASES': 'Family',
+  'JUDICIAL REVIEW CASES': 'Judicial Review',
+  'CONSTITUTIONAL AND HUMAN RIGHTS CASES': 'Constitutional & Human Rights',
+
+  // Also handle the reverse mapping (backend format -> backend format)
+  'Criminal': 'Criminal',
+  'Anti-Corruption & Economic Crimes': 'Anti-Corruption & Economic Crimes',
+  'Commercial & Tax': 'Commercial & Tax',
+  'Admiralty': 'Admiralty',
+  'Civil': 'Civil',
+  'Family': 'Family',
+  'Judicial Review': 'Judicial Review',
+  'Constitutional & Human Rights': 'Constitutional & Human Rights',
+};
+
+// ============================================================
+// Normalize category name to match backend format
+// ============================================================
+const normalizeCategory = (category: string): string => {
+  return CATEGORY_MAP[category] || category;
+};
+
+// ============================================================
+// VALIDATION: Check if a case name belongs to a valid category
+// ============================================================
+const isValidCaseCategory = (category: string): category is CaseCategory => {
+  // Check both the normalized category and the original
+  const normalized = normalizeCategory(category);
+  return Object.keys(CASE_CATEGORIES).includes(normalized);
+};
+
+const isValidCaseName = (category: string, name: string): boolean => {
+  const normalized = normalizeCategory(category);
+  if (!Object.keys(CASE_CATEGORIES).includes(normalized)) {
+    return false;
+  }
+  const cases = CASE_CATEGORIES[normalized as CaseCategory] as readonly string[];
+  return cases.includes(name);
+};
+
+const validateStationRequirementItems = (items: StationRequirementItem[], type: string): void => {
+  if (!Array.isArray(items)) {
+    throw new AppError(`${type} must be an array`, 400);
+  }
+
+  items.forEach((item, index) => {
+    if (!item.division || typeof item.division !== 'string' || item.division.trim() === '') {
+      throw new AppError(`${type}[${index}]: division is required and must be a non-empty string`, 400);
+    }
+
+    if (!item.name || typeof item.name !== 'string' || item.name.trim() === '') {
+      throw new AppError(`${type}[${index}]: name is required and must be a non-empty string`, 400);
+    }
+
+    // Validate that the division is a valid case category (check both formats)
+    const normalizedDivision = normalizeCategory(item.division);
+    if (!Object.keys(CASE_CATEGORIES).includes(normalizedDivision)) {
+      throw new AppError(
+        `${type}[${index}]: division "${item.division}" is not a valid case category. ` +
+        `Valid categories are: ${Object.keys(CASE_CATEGORIES).join(', ')}`,
+        400
+      );
+    }
+
+    // Validate that the name belongs to the specified category
+    const validNames = CASE_CATEGORIES[normalizedDivision as CaseCategory] as readonly string[];
+    if (!validNames.includes(item.name)) {
+      throw new AppError(
+        `${type}[${index}]: name "${item.name}" is not valid for category "${item.division}". ` +
+        `Valid names for this category are: ${validNames.join(', ')}`,
+        400
+      );
+    }
+
+    if (typeof item.quantity !== 'number' || isNaN(item.quantity) || item.quantity < 0) {
+      throw new AppError(`${type}[${index}]: quantity must be a valid number >= 0`, 400);
+    }
+  });
+};
+
+// ============================================================
+// Map database row to StationRequirementSubmission
 // ============================================================
 const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
-  // Log the row for debugging
   console.log('🔍 Mapping database row:', JSON.stringify(row, null, 2));
-  
-  // Check if row exists
+
   if (!row) {
     throw new AppError('No data returned from database', 500);
   }
 
-  // Extract and validate required fields
   const id = row.id ? String(row.id).trim() : '';
   const station = row.station ? String(row.station).trim() : '';
-  const quarter = row.quarter ? String(row.quarter).trim() : '';
   const submittedAt = row.submitted_at ? String(row.submitted_at).trim() : '';
 
-  // Validate required fields exist and are not empty
   if (!id) {
     console.error('Missing or invalid id in row:', row);
     throw new AppError('Invalid submission data: missing id', 500);
@@ -39,16 +127,11 @@ const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
     console.error('Missing or invalid station in row:', row);
     throw new AppError('Invalid submission data: missing station', 500);
   }
-  if (!quarter) {
-    console.error('Missing or invalid quarter in row:', row);
-    throw new AppError('Invalid submission data: missing quarter', 500);
-  }
   if (!submittedAt) {
     console.error('Missing or invalid submitted_at in row:', row);
     throw new AppError('Invalid submission data: missing submitted_at', 500);
   }
 
-  // Parse file_folders - handle both JSON string and parsed array
   let fileFolders: StationRequirementItem[] = [];
   try {
     if (row.file_folders) {
@@ -66,7 +149,6 @@ const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
     fileFolders = [];
   }
 
-  // Parse registers - handle both JSON string and parsed array
   let registers: StationRequirementItem[] = [];
   try {
     if (row.registers) {
@@ -84,7 +166,6 @@ const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
     registers = [];
   }
 
-  // Ensure fileFolders and registers are arrays
   if (!Array.isArray(fileFolders)) {
     console.warn('fileFolders is not an array, converting to empty array');
     fileFolders = [];
@@ -94,11 +175,9 @@ const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
     registers = [];
   }
 
-  // Return the mapped submission with submitter details
   return {
     id,
     station,
-    quarter,
     fileFolders,
     registers,
     submittedAt,
@@ -109,38 +188,16 @@ const mapSubmissionRow = (row: DbRow): StationRequirementSubmission => {
 };
 
 // ============================================================
-// FIXED: Map database row to StationRequirementSummary with ID
+// Map database row to StationRequirementSummary
 // ============================================================
 const mapSummaryRow = (row: DbRow): StationRequirementSummary => {
   return {
     id: row.id ? String(row.id) : undefined,
     station: row.station ? String(row.station) : '',
-    quarter: row.quarter ? String(row.quarter) : '',
     fileFoldersTotal: Number(row.file_folders_total) || 0,
     registersTotal: Number(row.registers_total) || 0,
     submittedAt: row.submitted_at ? String(row.submitted_at) : new Date().toISOString(),
   };
-};
-
-// ============================================================
-// Validate input items
-// ============================================================
-const validateItems = (items: StationRequirementItem[], type: string): void => {
-  if (!Array.isArray(items)) {
-    throw new AppError(`${type} must be an array`, 400);
-  }
-
-  items.forEach((item, index) => {
-    if (!item.division || typeof item.division !== 'string' || item.division.trim() === '') {
-      throw new AppError(`${type}[${index}]: division is required and must be a non-empty string`, 400);
-    }
-    if (!item.name || typeof item.name !== 'string' || item.name.trim() === '') {
-      throw new AppError(`${type}[${index}]: name is required and must be a non-empty string`, 400);
-    }
-    if (typeof item.quantity !== 'number' || isNaN(item.quantity) || item.quantity < 0) {
-      throw new AppError(`${type}[${index}]: quantity must be a valid number >= 0`, 400);
-    }
-  });
 };
 
 // ============================================================
@@ -152,7 +209,6 @@ export const createSubmission = async (
 ): Promise<StationRequirementSubmission> => {
   console.log('🔍 [Service] createSubmission called with:', {
     station: input.station,
-    quarter: input.quarter,
     fileFoldersCount: input.fileFolders?.length || 0,
     registersCount: input.registers?.length || 0,
     userId,
@@ -166,15 +222,11 @@ export const createSubmission = async (
     throw new AppError('Station name is required', 400);
   }
 
-  if (!input.quarter || typeof input.quarter !== 'string' || input.quarter.trim() === '') {
-    throw new AppError('Quarter is required', 400);
-  }
-
   const fileFolders = input.fileFolders || [];
   const registers = input.registers || [];
 
-  validateItems(fileFolders, 'fileFolders');
-  validateItems(registers, 'registers');
+  validateStationRequirementItems(fileFolders, 'fileFolders');
+  validateStationRequirementItems(registers, 'registers');
 
   const hasValidItem = (items: StationRequirementItem[]): boolean => {
     return items.some(item => item.quantity > 0);
@@ -184,32 +236,33 @@ export const createSubmission = async (
     throw new AppError('At least one item with quantity greater than 0 is required', 400);
   }
 
+  // Normalize division names before saving to database
   const cleanFileFolders = fileFolders.map(item => ({
-    division: item.division.trim(),
+    division: normalizeCategory(item.division.trim()),
     name: item.name.trim(),
     quantity: item.quantity,
   }));
 
   const cleanRegisters = registers.map(item => ({
-    division: item.division.trim(),
+    division: normalizeCategory(item.division.trim()),
     name: item.name.trim(),
     quantity: item.quantity,
   }));
 
   console.log('🔍 [Service] Inserting into database:', {
     station: input.station.trim(),
-    quarter: input.quarter.trim(),
     fileFoldersCount: cleanFileFolders.length,
     registersCount: cleanRegisters.length,
+    fileFolders: cleanFileFolders,
+    registers: cleanRegisters,
   });
 
   const result = await query(
-    `INSERT INTO station_requirements (station, quarter, file_folders, registers, submitted_by)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO station_requirements (station, file_folders, registers, submitted_by)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
     [
       input.station.trim(),
-      input.quarter.trim(),
       JSON.stringify(cleanFileFolders),
       JSON.stringify(cleanRegisters),
       userId || null,
@@ -236,7 +289,6 @@ export const getSubmissions = async (
 ): Promise<{ submissions: StationRequirementSummary[]; total: number }> => {
   const {
     station,
-    quarter,
     fromDate,
     toDate,
     page = 1,
@@ -253,12 +305,6 @@ export const getSubmissions = async (
   if (station) {
     conditions.push(`station ILIKE $${paramIndex}`);
     values.push(`%${station}%`);
-    paramIndex++;
-  }
-
-  if (quarter) {
-    conditions.push(`quarter = $${paramIndex}`);
-    values.push(quarter);
     paramIndex++;
   }
 
@@ -288,7 +334,6 @@ export const getSubmissions = async (
     `SELECT 
        id,
        station,
-       quarter,
        submitted_at,
        COALESCE(
          (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(file_folders) AS value),
@@ -311,7 +356,7 @@ export const getSubmissions = async (
 };
 
 // ============================================================
-// GET SUBMISSION BY ID - Include user details
+// GET SUBMISSION BY ID
 // ============================================================
 export const getSubmissionById = async (id: string): Promise<StationRequirementSubmission> => {
   if (!id || typeof id !== 'string' || id.trim() === '') {
@@ -340,24 +385,17 @@ export const getSubmissionById = async (id: string): Promise<StationRequirementS
 // GET SUBMISSIONS BY STATION
 // ============================================================
 export const getSubmissionsByStation = async (
-  station: string,
-  quarter?: string
+  station: string
 ): Promise<StationRequirementSubmission[]> => {
   if (!station || typeof station !== 'string' || station.trim() === '') {
     throw new AppError('Valid station name is required', 400);
   }
 
-  let queryText = 'SELECT * FROM station_requirements WHERE station ILIKE $1';
-  const values: unknown[] = [`%${station.trim()}%`];
+  const result = await query(
+    'SELECT * FROM station_requirements WHERE station ILIKE $1 ORDER BY submitted_at DESC',
+    [`%${station.trim()}%`]
+  );
 
-  if (quarter) {
-    queryText += ' AND quarter = $2';
-    values.push(quarter);
-  }
-
-  queryText += ' ORDER BY submitted_at DESC';
-
-  const result = await query(queryText, values);
   return result.rows.map(mapSubmissionRow);
 };
 
@@ -385,25 +423,31 @@ export const updateSubmission = async (
     paramIndex++;
   }
 
-  if (input.quarter) {
-    updates.push(`quarter = $${paramIndex}`);
-    values.push(input.quarter.trim());
-    paramIndex++;
-  }
-
   if (input.fileFolders) {
     const fileFolders = input.fileFolders;
-    validateItems(fileFolders, 'fileFolders');
+    validateStationRequirementItems(fileFolders, 'fileFolders');
+    // Normalize division names before saving
+    const normalizedFileFolders = fileFolders.map(item => ({
+      division: normalizeCategory(item.division.trim()),
+      name: item.name.trim(),
+      quantity: item.quantity,
+    }));
     updates.push(`file_folders = $${paramIndex}`);
-    values.push(JSON.stringify(fileFolders));
+    values.push(JSON.stringify(normalizedFileFolders));
     paramIndex++;
   }
 
   if (input.registers) {
     const registers = input.registers;
-    validateItems(registers, 'registers');
+    validateStationRequirementItems(registers, 'registers');
+    // Normalize division names before saving
+    const normalizedRegisters = registers.map(item => ({
+      division: normalizeCategory(item.division.trim()),
+      name: item.name.trim(),
+      quantity: item.quantity,
+    }));
     updates.push(`registers = $${paramIndex}`);
-    values.push(JSON.stringify(registers));
+    values.push(JSON.stringify(normalizedRegisters));
     paramIndex++;
   }
 
@@ -516,16 +560,19 @@ export const getUniqueStations = async (): Promise<string[]> => {
 };
 
 // ============================================================
-// GET UNIQUE QUARTERS
+// GET ALL VALID CASE CATEGORIES AND NAMES (for frontend use)
 // ============================================================
-export const getUniqueQuarters = async (): Promise<string[]> => {
-  const result = await query(
-    'SELECT DISTINCT quarter FROM station_requirements ORDER BY quarter DESC'
-  );
+export const getValidCaseCategories = (): CaseCategory[] => {
+  return Object.keys(CASE_CATEGORIES) as CaseCategory[];
+};
 
-  if (!result.rows) {
-    return [];
-  }
+export const getValidCaseNames = (category: CaseCategory): readonly string[] => {
+  return CASE_CATEGORIES[category] as readonly string[];
+};
 
-  return result.rows.map((row) => row.quarter as string).filter(Boolean);
+export const getAllValidCases = (): { category: CaseCategory; names: readonly string[] }[] => {
+  return Object.entries(CASE_CATEGORIES).map(([category, names]) => ({
+    category: category as CaseCategory,
+    names: names as readonly string[],
+  }));
 };

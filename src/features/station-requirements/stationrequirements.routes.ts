@@ -10,7 +10,8 @@ import {
   deleteSubmissionHandler,
   getSubmissionTotalsHandler,
   getUniqueStationsHandler,
-  getUniqueQuartersHandler,
+  getCaseCategoriesHandler,
+  getValidCasesHandler,
 } from './stationrequirements.controller';
 import { 
   protect, 
@@ -38,11 +39,14 @@ router.use(protect);
 // ✅ Shared Routes (Accessible by BOTH Admin and DR)
 // ============================================================
 
+// GET /api/station-requirements/categories - Get all case categories with their names
+router.get('/categories', adminOrDr, getCaseCategoriesHandler);
+
+// GET /api/station-requirements/valid-cases - Get all valid case categories and names for frontend
+router.get('/valid-cases', adminOrDr, getValidCasesHandler);
+
 // GET /api/station-requirements/stations - Get all unique stations
 router.get('/stations', adminOrDr, getUniqueStationsHandler);
-
-// GET /api/station-requirements/quarters - Get all unique quarters
-router.get('/quarters', adminOrDr, getUniqueQuartersHandler);
 
 // ============================================================
 // ✅ Admin Only Routes - SPECIFIC routes FIRST
@@ -55,6 +59,7 @@ router.get('/totals', adminOnly, getSubmissionTotalsHandler);
 router.get(
   '/',
   adminOnly,
+  validate(getSubmissionsSchema),
   getSubmissionsHandler
 );
 
@@ -94,6 +99,7 @@ router.put(
 router.get(
   '/:id',
   adminOrDr,
+  validate(getSubmissionSchema),
   getSubmissionByIdHandler
 );
 

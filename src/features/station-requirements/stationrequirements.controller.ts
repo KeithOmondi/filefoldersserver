@@ -5,6 +5,8 @@ import {
   CreateSubmissionInput,
   GetSubmissionsQuery,
   StationRequirementItem,
+  CASE_CATEGORIES,
+  CaseCategory,
 } from './stationrequirements.types';
 import { catchAsync } from '../../utils/catchasync';
 import { sendResponse } from '../../utils/Apiresponse';
@@ -19,6 +21,19 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
+// ============================================================
+// VALIDATION HELPERS
+// ============================================================
+
+const isValidCaseCategory = (category: string): category is CaseCategory => {
+  return Object.keys(CASE_CATEGORIES).includes(category);
+};
+
+const isValidCaseName = (category: CaseCategory, name: string): boolean => {
+  const cases = CASE_CATEGORIES[category] as readonly string[];
+  return cases.includes(name);
+};
+
 // Type guard to check if value is a valid StationRequirementItem
 const isValidRequirementItem = (item: unknown): item is StationRequirementItem => {
   if (!item || typeof item !== 'object') {
@@ -26,15 +41,19 @@ const isValidRequirementItem = (item: unknown): item is StationRequirementItem =
   }
 
   const obj = item as Record<string, unknown>;
-  
+
   const hasValidDivision = typeof obj.division === 'string' && obj.division.trim().length > 0;
   const hasValidName = typeof obj.name === 'string' && obj.name.trim().length > 0;
   const hasValidQuantity = typeof obj.quantity === 'number' && !isNaN(obj.quantity) && obj.quantity >= 0;
-  
+
   return hasValidDivision && hasValidName && hasValidQuantity;
 };
 
-// Helper to log item details
+// ============================================================
+// LOGGING HELPERS
+// ============================================================
+
+// Helper to log item details with validation
 const logItemDetails = (items: unknown[], type: string): void => {
   if (!Array.isArray(items)) {
     console.warn(`⚠️ ${type} is not an array!`);
@@ -42,12 +61,22 @@ const logItemDetails = (items: unknown[], type: string): void => {
   }
 
   console.log(`🔍 [${type}] array length: ${items.length}`);
-  
+
   items.forEach((item: unknown, index: number) => {
     if (isValidRequirementItem(item)) {
-      console.log(`  [${index}] division: ${item.division} (${typeof item.division})`);
-      console.log(`  [${index}] name: ${item.name} (${typeof item.name})`);
+      const isValidCategory = isValidCaseCategory(item.division);
+      const isValidName = isValidCategory ? isValidCaseName(item.division as CaseCategory, item.name) : false;
+
+      console.log(`  [${index}] division: ${item.division} (${typeof item.division}) ${isValidCategory ? '✅' : '❌'}`);
+      console.log(`  [${index}] name: ${item.name} (${typeof item.name}) ${isValidName ? '✅' : '❌'}`);
       console.log(`  [${index}] quantity: ${item.quantity} (${typeof item.quantity})`);
+
+      if (!isValidCategory) {
+        console.warn(`  ⚠️  Invalid category: "${item.division}". Valid categories: ${Object.keys(CASE_CATEGORIES).join(', ')}`);
+      }
+      if (isValidCategory && !isValidName) {
+        console.warn(`  ⚠️  Invalid name: "${item.name}" for category "${item.division}". Valid names: ${CASE_CATEGORIES[item.division as CaseCategory].join(', ')}`);
+      }
     } else {
       console.warn(`  [${index}] Invalid item:`, item);
     }
@@ -80,6 +109,20 @@ const findUndefinedValues = (obj: unknown, path: string = ''): void => {
 };
 
 // ============================================================
+// GET /api/station-requirements/categories
+// NEW: Get all valid case categories and their names
+// ============================================================
+export const getCaseCategoriesHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getCaseCategories');
+
+  const categories = stationRequirementsService.getAllValidCases();
+
+  console.log('✅ [Controller] Case categories retrieved:', categories.length);
+
+  sendResponse(res, 200, { categories }, 'Case categories retrieved successfully');
+});
+
+// ============================================================
 // POST /api/station-requirements
 // ============================================================
 export const createSubmissionHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
@@ -94,14 +137,13 @@ export const createSubmissionHandler = catchAsync(async (req: AuthenticatedReque
   // Check specific fields
   console.log('🔍 [3] Field checks:');
   console.log('  - station:', req.body.station, `(${typeof req.body.station})`);
-  console.log('  - quarter:', req.body.quarter, `(${typeof req.body.quarter})`);
   console.log('  - fileFolders:', req.body.fileFolders, `(${typeof req.body.fileFolders})`);
   console.log('  - registers:', req.body.registers, `(${typeof req.body.registers})`);
 
-  // Check fileFolders array
+  // Check fileFolders array with validation
   logItemDetails(req.body.fileFolders || [], 'fileFolders');
 
-  // Check registers array
+  // Check registers array with validation
   logItemDetails(req.body.registers || [], 'registers');
 
   // User info
@@ -124,7 +166,8 @@ export const createSubmissionHandler = catchAsync(async (req: AuthenticatedReque
   console.log('✅ [9] Submission created successfully:', {
     id: submission.id,
     station: submission.station,
-    quarter: submission.quarter,
+    fileFoldersCount: submission.fileFolders.length,
+    registersCount: submission.registers.length,
   });
 
   sendResponse(res, 201, { submission }, 'Submission created successfully');
@@ -137,7 +180,6 @@ export const getSubmissionsHandler = catchAsync(async (req: AuthenticatedRequest
   // Build query object from req.query
   const query: GetSubmissionsQuery = {
     station: req.query.station as string | undefined,
-    quarter: req.query.quarter as string | undefined,
     fromDate: req.query.fromDate as string | undefined,
     toDate: req.query.toDate as string | undefined,
     page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
@@ -185,8 +227,9 @@ export const getSubmissionByIdHandler = catchAsync(async (req: AuthenticatedRequ
   console.log('✅ [Controller] Submission retrieved:', {
     id: submission.id,
     station: submission.station,
-    quarter: submission.quarter,
     submittedBy: submission.submitterName || submission.submitterEmail || 'Unknown User',
+    fileFoldersCount: submission.fileFolders.length,
+    registersCount: submission.registers.length,
   });
 
   sendResponse(res, 200, { submission }, 'Submission retrieved successfully');
@@ -202,11 +245,9 @@ export const getSubmissionsByStationHandler = catchAsync(async (req: Authenticat
     throw new AppError('Station name is required', 400);
   }
 
-  const quarter = req.query.quarter as string | undefined;
+  console.log('🔍 [Controller] getSubmissionsByStation:', { station });
 
-  console.log('🔍 [Controller] getSubmissionsByStation:', { station, quarter });
-
-  const submissions = await stationRequirementsService.getSubmissionsByStation(station, quarter);
+  const submissions = await stationRequirementsService.getSubmissionsByStation(station);
 
   console.log('✅ [Controller] Submissions by station retrieved:', {
     station,
@@ -228,6 +269,14 @@ export const updateSubmissionHandler = catchAsync(async (req: AuthenticatedReque
 
   console.log('🔍 [Controller] updateSubmission:', { id, body: req.body });
 
+  // Validate update data
+  if (req.body.fileFolders) {
+    logItemDetails(req.body.fileFolders, 'fileFolders');
+  }
+  if (req.body.registers) {
+    logItemDetails(req.body.registers, 'registers');
+  }
+
   const input: Partial<CreateSubmissionInput> = req.body;
   const userId = req.user?.id;
 
@@ -236,7 +285,6 @@ export const updateSubmissionHandler = catchAsync(async (req: AuthenticatedReque
   console.log('✅ [Controller] Submission updated:', {
     id: submission.id,
     station: submission.station,
-    quarter: submission.quarter,
     updatedBy: submission.submitterName || submission.submitterEmail || 'Unknown User',
   });
 
@@ -289,18 +337,26 @@ export const getUniqueStationsHandler = catchAsync(async (req: AuthenticatedRequ
 });
 
 // ============================================================
-// GET /api/station-requirements/quarters
+// GET /api/station-requirements/valid-cases
+// NEW: Get all valid case categories and names for frontend
 // ============================================================
-export const getUniqueQuartersHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  console.log('🔍 [Controller] getUniqueQuarters');
+export const getValidCasesHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getValidCases');
 
-  const quarters = await stationRequirementsService.getUniqueQuarters();
+  const categories = stationRequirementsService.getValidCaseCategories();
+  const allCases = categories.map(category => ({
+    category,
+    names: stationRequirementsService.getValidCaseNames(category),
+  }));
 
-  console.log('✅ [Controller] Unique quarters retrieved:', quarters.length);
+  console.log('✅ [Controller] Valid cases retrieved:', allCases.length);
 
-  sendResponse(res, 200, { quarters }, 'Quarters retrieved successfully');
+  sendResponse(res, 200, { categories: allCases }, 'Valid cases retrieved successfully');
 });
 
+// ============================================================
+// EXPORT
+// ============================================================
 export default {
   createSubmissionHandler,
   getSubmissionsHandler,
@@ -310,5 +366,6 @@ export default {
   deleteSubmissionHandler,
   getSubmissionTotalsHandler,
   getUniqueStationsHandler,
-  getUniqueQuartersHandler,
+  getCaseCategoriesHandler,
+  getValidCasesHandler,
 };
