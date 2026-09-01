@@ -17,7 +17,10 @@ import {
   AdminDashboardStats,
   AdminReviewQueue,
   CASE_CATEGORIES,
+  CASE_REGISTERS,
+  ADDITIONAL_REGISTERS,
   CaseCategory,
+  RegisterCategory,
   CaseName,
 } from './stationrequirements.types';
 
@@ -50,6 +53,31 @@ const CATEGORY_MAP: Record<string, string> = {
 };
 
 // ============================================================
+// Register Category Mapping
+// ============================================================
+const REGISTER_CATEGORY_MAP: Record<string, string> = {
+  // Frontend format -> Backend format
+  'CRIMINAL': 'Criminal',
+  'ANTI-CORRUPTION AND ECONOMIC CRIMES': 'Anti-Corruption & Economic Crimes',
+  'CIVIL': 'Civil',
+  'COMMERCIAL': 'Commercial & Tax',
+  'CONSTITUTIONAL AND HUMAN RIGHTS': 'Constitutional & Human Rights',
+  'JUDICIAL REVIEW': 'Judicial Review',
+  'FAMILY': 'Family',
+  'ADDITIONAL': 'Additional',
+
+  // Backend format -> Backend format
+  'Criminal': 'Criminal',
+  'Anti-Corruption & Economic Crimes': 'Anti-Corruption & Economic Crimes',
+  'Civil': 'Civil',
+  'Commercial & Tax': 'Commercial & Tax',
+  'Constitutional & Human Rights': 'Constitutional & Human Rights',
+  'Judicial Review': 'Judicial Review',
+  'Family': 'Family',
+  'Additional': 'Additional',
+};
+
+// ============================================================
 // Normalize category name to match backend format
 // ============================================================
 const normalizeCategory = (category: string): string => {
@@ -57,10 +85,16 @@ const normalizeCategory = (category: string): string => {
 };
 
 // ============================================================
-// VALIDATION: Check if a case name belongs to a valid category
+// Normalize register category name to match backend format
+// ============================================================
+const normalizeRegisterCategory = (category: string): string => {
+  return REGISTER_CATEGORY_MAP[category] || category;
+};
+
+// ============================================================
+// VALIDATION: Check if a case name belongs to a valid category (File Folders)
 // ============================================================
 const isValidCaseCategory = (category: string): category is CaseCategory => {
-  // Check both the normalized category and the original
   const normalized = normalizeCategory(category);
   return Object.keys(CASE_CATEGORIES).includes(normalized);
 };
@@ -74,7 +108,33 @@ const isValidCaseName = (category: string, name: string): boolean => {
   return cases.includes(name);
 };
 
-const validateStationRequirementItems = (items: StationRequirementItem[], type: string): void => {
+// ============================================================
+// VALIDATION: Check if a register name belongs to a valid category
+// ============================================================
+const isValidRegisterCategory = (category: string): category is RegisterCategory | 'Additional' => {
+  const normalized = normalizeRegisterCategory(category);
+  return Object.keys(CASE_REGISTERS).includes(normalized) || normalized === 'Additional';
+};
+
+const isValidRegisterName = (category: string, name: string): boolean => {
+  const normalized = normalizeRegisterCategory(category);
+  
+  if (normalized === 'Additional') {
+    return ADDITIONAL_REGISTERS.includes(name as any);
+  }
+  
+  if (!Object.keys(CASE_REGISTERS).includes(normalized)) {
+    return false;
+  }
+  
+  const registers = CASE_REGISTERS[normalized as RegisterCategory] as readonly string[];
+  return registers.includes(name);
+};
+
+// ============================================================
+// Validate File Folder Items
+// ============================================================
+const validateFileFolderItems = (items: StationRequirementItem[], type: string): void => {
   if (!Array.isArray(items)) {
     throw new AppError(`${type} must be an array`, 400);
   }
@@ -88,7 +148,7 @@ const validateStationRequirementItems = (items: StationRequirementItem[], type: 
       throw new AppError(`${type}[${index}]: name is required and must be a non-empty string`, 400);
     }
 
-    // Validate that the division is a valid case category (check both formats)
+    // Validate that the division is a valid case category
     const normalizedDivision = normalizeCategory(item.division);
     if (!Object.keys(CASE_CATEGORIES).includes(normalizedDivision)) {
       throw new AppError(
@@ -112,6 +172,68 @@ const validateStationRequirementItems = (items: StationRequirementItem[], type: 
       throw new AppError(`${type}[${index}]: quantity must be a valid number >= 0`, 400);
     }
   });
+};
+
+// ============================================================
+// Validate Register Items
+// ============================================================
+const validateRegisterItems = (items: StationRequirementItem[], type: string): void => {
+  if (!Array.isArray(items)) {
+    throw new AppError(`${type} must be an array`, 400);
+  }
+
+  const allRegisterCategories = [...Object.keys(CASE_REGISTERS), 'Additional'];
+
+  items.forEach((item, index) => {
+    if (!item.division || typeof item.division !== 'string' || item.division.trim() === '') {
+      throw new AppError(`${type}[${index}]: division is required and must be a non-empty string`, 400);
+    }
+
+    if (!item.name || typeof item.name !== 'string' || item.name.trim() === '') {
+      throw new AppError(`${type}[${index}]: name is required and must be a non-empty string`, 400);
+    }
+
+    // Validate that the division is a valid register category
+    const normalizedDivision = normalizeRegisterCategory(item.division);
+    if (!allRegisterCategories.includes(normalizedDivision)) {
+      throw new AppError(
+        `${type}[${index}]: division "${item.division}" is not a valid register category. ` +
+        `Valid categories are: ${allRegisterCategories.join(', ')}`,
+        400
+      );
+    }
+
+    // Validate that the name belongs to the specified category
+    let validNames: string[] = [];
+    if (normalizedDivision === 'Additional') {
+      validNames = [...ADDITIONAL_REGISTERS];
+    } else {
+      validNames = CASE_REGISTERS[normalizedDivision as RegisterCategory] as unknown as string[];
+    }
+    
+    if (!validNames.includes(item.name)) {
+      throw new AppError(
+        `${type}[${index}]: name "${item.name}" is not valid for category "${item.division}". ` +
+        `Valid names for this category are: ${validNames.join(', ')}`,
+        400
+      );
+    }
+
+    if (typeof item.quantity !== 'number' || isNaN(item.quantity) || item.quantity < 0) {
+      throw new AppError(`${type}[${index}]: quantity must be a valid number >= 0`, 400);
+    }
+  });
+};
+
+// ============================================================
+// Combined validation for all items
+// ============================================================
+const validateStationRequirementItems = (
+  fileFolders: StationRequirementItem[], 
+  registers: StationRequirementItem[]
+): void => {
+  validateFileFolderItems(fileFolders, 'fileFolders');
+  validateRegisterItems(registers, 'registers');
 };
 
 // ============================================================
@@ -315,8 +437,7 @@ export const createSubmission = async (
 
   // Only validate items if status is 'submitted'
   if (status === 'submitted') {
-    validateStationRequirementItems(fileFolders, 'fileFolders');
-    validateStationRequirementItems(registers, 'registers');
+    validateStationRequirementItems(fileFolders, registers);
 
     const hasValidItem = (items: StationRequirementItem[]): boolean => {
       return items.some(item => item.quantity > 0);
@@ -335,7 +456,7 @@ export const createSubmission = async (
   }));
 
   const cleanRegisters = registers.map(item => ({
-    division: normalizeCategory(item.division.trim()),
+    division: normalizeRegisterCategory(item.division.trim()),
     name: item.name.trim(),
     quantity: item.quantity,
   }));
@@ -350,7 +471,6 @@ export const createSubmission = async (
   let result;
 
   if (status === 'submitted') {
-    // When status is 'submitted', set submitted_at to CURRENT_TIMESTAMP
     result = await query(
       `INSERT INTO station_requirements (
          station, file_folders, registers, status, submitted_at, submitted_by, submitter_email, submitter_name
@@ -368,7 +488,6 @@ export const createSubmission = async (
       ]
     );
   } else {
-    // When status is 'draft', submitted_at should be NULL
     result = await query(
       `INSERT INTO station_requirements (
          station, file_folders, registers, status, submitted_by, submitter_email, submitter_name
@@ -465,7 +584,6 @@ export const getSubmissions = async (
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const offset = (validPage - 1) * validLimit;
 
-  // Map sortBy to database column
   const sortColumnMap: Record<string, string> = {
     updatedAt: 'updated_at',
     submittedAt: 'submitted_at',
@@ -562,7 +680,7 @@ export const updateSubmission = async (
 
   if (input.fileFolders) {
     const fileFolders = input.fileFolders;
-    validateStationRequirementItems(fileFolders, 'fileFolders');
+    validateFileFolderItems(fileFolders, 'fileFolders');
     const normalizedFileFolders = fileFolders.map(item => ({
       division: normalizeCategory(item.division.trim()),
       name: item.name.trim(),
@@ -575,9 +693,9 @@ export const updateSubmission = async (
 
   if (input.registers) {
     const registers = input.registers;
-    validateStationRequirementItems(registers, 'registers');
+    validateRegisterItems(registers, 'registers');
     const normalizedRegisters = registers.map(item => ({
-      division: normalizeCategory(item.division.trim()),
+      division: normalizeRegisterCategory(item.division.trim()),
       name: item.name.trim(),
       quantity: item.quantity,
     }));
@@ -587,7 +705,6 @@ export const updateSubmission = async (
   }
 
   if (input.status) {
-    // Validate status transition
     const allowedTransitions: Record<SubmissionStatus, SubmissionStatus[]> = {
       'draft': ['draft', 'submitted'],
       'submitted': ['submitted'],
@@ -606,7 +723,6 @@ export const updateSubmission = async (
     values.push(input.status);
     paramIndex++;
 
-    // If status is 'submitted', set submitted_at
     if (input.status === 'submitted') {
       updates.push(`submitted_at = CURRENT_TIMESTAMP`);
     }
@@ -674,7 +790,6 @@ export const submitDraft = async (
     throw new AppError('Only drafts can be submitted', 400);
   }
 
-  // Validate that draft has required items
   const hasFileFolders = submission.fileFolders.some(item => item.quantity > 0);
   const hasRegisters = submission.registers.some(item => item.quantity > 0);
 
@@ -682,7 +797,6 @@ export const submitDraft = async (
     throw new AppError('Cannot submit draft with no items. Please add at least one item with quantity > 0.', 400);
   }
 
-  // Update status to submitted
   const result = await query(
     `UPDATE station_requirements 
      SET status = 'submitted', 
@@ -698,9 +812,6 @@ export const submitDraft = async (
   }
 
   const updatedSubmission = mapSubmissionRow(result.rows[0]);
-
-  // Note: Email sending will be handled by the controller
-  // The controller will call sendSubmissionConfirmation after this
 
   return updatedSubmission;
 };
@@ -797,7 +908,6 @@ export const getStationReport = async (
     limit = 50,
   } = queryParams;
 
-  // Get all stations with their latest submissions
   const result = await query(`
     WITH latest_submissions AS (
       SELECT DISTINCT ON (station) 
@@ -821,11 +931,9 @@ export const getStationReport = async (
     'needs_revision': 0,
   };
 
-  // For now, we'll use the submissions we have. In production, you'd have a list of all stations
   const allStations = result.rows.map(row => String(row.station));
   const uniqueStations = [...new Set(allStations)];
 
-  // If no submissions, return empty report
   if (uniqueStations.length === 0) {
     return {
       totalStations: 0,
@@ -841,7 +949,6 @@ export const getStationReport = async (
     };
   }
 
-  // Build station status for each station
   for (const station of uniqueStations) {
     const submissions = result.rows.filter(row => String(row.station) === station);
     const latest = submissions.length > 0 ? mapSubmissionRow(submissions[0]) : null;
@@ -850,7 +957,6 @@ export const getStationReport = async (
     const stationStatus = determineStationStatus(latest, reviewStatus);
     const progress = calculateProgress(latest || undefined);
 
-    // Apply filters
     if (status && stationStatus !== status) continue;
     if (fromDate && latest?.updatedAt && new Date(latest.updatedAt) < new Date(fromDate)) continue;
     if (toDate && latest?.updatedAt && new Date(latest.updatedAt) > new Date(toDate)) continue;
@@ -870,7 +976,6 @@ export const getStationReport = async (
     });
   }
 
-  // Apply pagination
   const startIndex = (page - 1) * limit;
   const paginatedStations = stationStatuses.slice(startIndex, startIndex + limit);
 
@@ -898,7 +1003,6 @@ export const getStationReport = async (
 export const getAdminDashboardStats = async (): Promise<AdminDashboardStats> => {
   const report = await getStationReport({});
 
-  // Get today's submissions
   const todayResult = await query(`
     SELECT COUNT(*) as count 
     FROM station_requirements 
@@ -906,7 +1010,6 @@ export const getAdminDashboardStats = async (): Promise<AdminDashboardStats> => 
   `);
   const submissionsToday = parseInt((todayResult.rows[0]?.count as string) || '0', 10);
 
-  // Get pending reviews
   const pendingResult = await query(`
     SELECT COUNT(*) as count 
     FROM station_requirements 
@@ -914,7 +1017,6 @@ export const getAdminDashboardStats = async (): Promise<AdminDashboardStats> => 
   `);
   const pendingReviews = parseInt((pendingResult.rows[0]?.count as string) || '0', 10);
 
-  // Get recent activity (last 10 submissions)
   const activityResult = await query(`
     SELECT 
       id,
@@ -1081,6 +1183,38 @@ export const getAllValidCases = (): { category: CaseCategory; names: readonly st
 };
 
 // ============================================================
+// GET ALL VALID REGISTER CATEGORIES AND NAMES (for frontend use)
+// ============================================================
+export const getValidRegisterCategories = (): string[] => {
+  return [...Object.keys(CASE_REGISTERS), 'Additional'];
+};
+
+export const getValidRegisterNames = (category: string): readonly string[] => {
+  if (category === 'Additional') {
+    return ADDITIONAL_REGISTERS as readonly string[];
+  }
+  return CASE_REGISTERS[category as RegisterCategory] as readonly string[];
+};
+
+export const getAllValidRegisters = (): { category: string; names: readonly string[] }[] => {
+  const result: { category: string; names: readonly string[] }[] = [];
+  
+  for (const category of Object.keys(CASE_REGISTERS)) {
+    result.push({
+      category,
+      names: CASE_REGISTERS[category as RegisterCategory] as readonly string[],
+    });
+  }
+  
+  result.push({
+    category: 'Additional',
+    names: ADDITIONAL_REGISTERS as readonly string[],
+  });
+  
+  return result;
+};
+
+// ============================================================
 // UPDATE EMAIL STATUS
 // ============================================================
 export const updateEmailStatus = async (
@@ -1110,4 +1244,118 @@ export const updateEmailStatus = async (
      WHERE id = $${paramIndex}`,
     values
   );
+};
+
+
+// services/stationrequirements.service.ts
+
+// Add this new function
+// ============================================================
+// GET MY SUBMISSIONS (DRs only - sees own drafts and submitted)
+// ============================================================
+export const getMySubmissions = async (
+  queryParams: GetSubmissionsQuery & { submittedBy: string }
+): Promise<{ submissions: StationRequirementSummary[]; total: number }> => {
+  const {
+    station,
+    status,
+    reviewStatus,
+    fromDate,
+    toDate,
+    page = 1,
+    limit = 20,
+    sortBy = 'updatedAt',
+    sortOrder = 'desc',
+    submittedBy,
+  } = queryParams;
+
+  const validPage = Math.max(1, page);
+  const validLimit = Math.min(100, Math.max(1, limit));
+
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  // Always filter by submitted_by (DR's own submissions)
+  conditions.push(`submitted_by = $${paramIndex}`);
+  values.push(submittedBy);
+  paramIndex++;
+
+  if (station) {
+    conditions.push(`station ILIKE $${paramIndex}`);
+    values.push(`%${station}%`);
+    paramIndex++;
+  }
+
+  if (status) {
+    conditions.push(`status = $${paramIndex}`);
+    values.push(status);
+    paramIndex++;
+  }
+
+  if (reviewStatus) {
+    conditions.push(`review_status = $${paramIndex}`);
+    values.push(reviewStatus);
+    paramIndex++;
+  }
+
+  if (fromDate) {
+    conditions.push(`submitted_at >= $${paramIndex}`);
+    values.push(fromDate);
+    paramIndex++;
+  }
+
+  if (toDate) {
+    conditions.push(`submitted_at <= $${paramIndex}`);
+    values.push(toDate);
+    paramIndex++;
+  }
+
+  // DRs see both drafts and submitted - no status filter unless specified
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const offset = (validPage - 1) * validLimit;
+
+  const sortColumnMap: Record<string, string> = {
+    updatedAt: 'updated_at',
+    submittedAt: 'submitted_at',
+    station: 'station',
+  };
+  const sortColumn = sortColumnMap[sortBy] || 'updated_at';
+  const sortDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
+  const countResult = await query(
+    `SELECT COUNT(*) as total FROM station_requirements ${whereClause}`,
+    values
+  );
+
+  const total = parseInt((countResult.rows[0]?.total as string) || '0', 10);
+
+  const result = await query(
+    `SELECT 
+       id,
+       station,
+       status,
+       submitted_at,
+       updated_at,
+       review_status,
+       submitter_name,
+       COALESCE(
+         (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(file_folders) AS value),
+         0
+       ) as file_folders_total,
+       COALESCE(
+         (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(registers) AS value),
+         0
+       ) as registers_total
+     FROM station_requirements
+     ${whereClause}
+     ORDER BY ${sortColumn} ${sortDirection}
+     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+    [...values, validLimit, offset]
+  );
+
+  const submissions = result.rows.map(mapSummaryRow);
+
+  return { submissions, total };
 };

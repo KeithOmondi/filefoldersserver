@@ -6,6 +6,7 @@
 // - Added draft functionality with status field
 // - Added email tracking fields
 // - Added station tracking for admin dashboard
+// - Added comprehensive register categories for all case types
 
 // ============================================
 // Core Types
@@ -41,14 +42,12 @@ export interface StationSubmissionStatus {
   submitterName?: string;
   draftExists: boolean;
   hasSubmitted: boolean;
-  // Track who is working on it
   assignedTo?: string;
   assignedToName?: string;
-  // Progress tracking
   progress: {
     fileFoldersComplete: boolean;
     registersComplete: boolean;
-    percentageComplete: number; // 0-100
+    percentageComplete: number;
   };
 }
 
@@ -57,11 +56,11 @@ export interface StationReport {
   stationsByStatus: Record<StationStatus, number>;
   stations: StationSubmissionStatus[];
   summary: {
-    completed: number;      // Submitted and approved
-    pending: number;        // In draft or in_progress
-    notStarted: number;     // No submission
+    completed: number;
+    pending: number;
+    notStarted: number;
     total: number;
-    completionRate: number; // Percentage
+    completionRate: number;
   };
 }
 
@@ -70,17 +69,15 @@ export interface StationRequirementSubmission {
   station: string;
   fileFolders: StationRequirementItem[];
   registers: StationRequirementItem[];
-  status: SubmissionStatus; // 'draft' or 'submitted'
-  submittedAt?: string; // Only present when status is 'submitted'
-  updatedAt: string; // Last updated timestamp (for drafts)
-  submittedBy?: string; // User ID from auth
-  submitterName?: string; // Full name of submitter
-  submitterEmail?: string; // Email of submitter
-  // Email tracking
+  status: SubmissionStatus;
+  submittedAt?: string;
+  updatedAt: string;
+  submittedBy?: string;
+  submitterName?: string;
+  submitterEmail?: string;
   emailSent?: boolean;
   emailSentAt?: string;
   emailError?: string;
-  // Admin review fields
   adminReviewed?: boolean;
   adminReviewedAt?: string;
   adminReviewedBy?: string;
@@ -106,12 +103,12 @@ export interface StationRequirementSummary {
 
 export interface DraftSubmission extends StationRequirementSubmission {
   status: 'draft';
-  submittedAt?: never; // Drafts don't have submittedAt
+  submittedAt?: never;
 }
 
 export interface SubmittedSubmission extends StationRequirementSubmission {
   status: 'submitted';
-  submittedAt: string; // Required for submitted submissions
+  submittedAt: string;
 }
 
 // ============================================
@@ -122,7 +119,7 @@ export interface CreateSubmissionInput {
   station: string;
   fileFolders: StationRequirementItem[];
   registers: StationRequirementItem[];
-  status?: SubmissionStatus; // Defaults to 'draft' if not provided
+  status?: SubmissionStatus;
 }
 
 export interface UpdateSubmissionInput {
@@ -135,13 +132,13 @@ export interface UpdateSubmissionInput {
 }
 
 export interface SubmitDraftInput {
-  id: string; // Draft ID to submit
-  sendEmail?: boolean; // Whether to send confirmation email
+  id: string;
+  sendEmail?: boolean;
 }
 
 export interface GetSubmissionsQuery {
   station?: string;
-  status?: SubmissionStatus; // Filter by status
+  status?: SubmissionStatus;
   reviewStatus?: ReviewStatus;
   fromDate?: string;
   toDate?: string;
@@ -149,7 +146,7 @@ export interface GetSubmissionsQuery {
   limit?: number;
   sortBy?: 'updatedAt' | 'submittedAt' | 'station';
   sortOrder?: 'asc' | 'desc';
-  adminView?: boolean; // If true, show all submissions including admin fields
+  adminView?: boolean;
 }
 
 export interface GetStationReportQuery {
@@ -232,8 +229,8 @@ export interface AdminReviewQueue {
 }
 
 // ============================================
-// CASE CATEGORIES - From the official document
-// (unchanged - verified against the uploaded doc, matches exactly)
+// CASE CATEGORIES - File Folders
+// (Original case categories for file folders)
 // ============================================
 
 export const CASE_CATEGORIES = {
@@ -295,7 +292,98 @@ export const CASE_CATEGORIES = {
 } as const;
 
 // ============================================
-// CASE CODES - Using unique keys (category + name)
+// CASE REGISTERS - By Category
+// (For the registers section - second page)
+// ============================================
+
+export const CASE_REGISTERS = {
+  // A. CRIMINAL CASE REGISTERS
+  "Criminal": [
+    "Criminal Application/Murder Case Register",
+    "Criminal Miscellaneous Application Case Register",
+    "Criminal Revision Case Register",
+    "Criminal Appeal Case Register"
+  ],
+  
+  // B. ANTI-CORRUPTION & ECONOMIC CRIMES CASE REGISTERS
+  "Anti-Corruption & Economic Crimes": [
+    "Anti-Corruption and Economic Crimes Suits Case Register",
+    "Anti-Corruption and Economic Crimes Petition Case Register",
+    "Anti-Corruption and Economic Crimes Appeals Case Register",
+    "Anti-Corruption and Economic Crimes Revision Case Register",
+    "Anti-Corruption and Economic Crimes Miscellaneous Case Register"
+  ],
+  
+  // C. CIVIL CASE REGISTERS
+  "Civil": [
+    "Civil Case Register",
+    "Civil Appeals Case Register",
+    "Miscellaneous Civil Application Case Register"
+  ],
+  
+  // D. COMMERCIAL CASE REGISTERS
+  "Commercial & Tax": [
+    "Commercial Suits Case Register",
+    "Commercial Miscellaneous Case Register",
+    "Commercial Appeal Case Register",
+    "Income Tax Appeals Case Register",
+    "Insolvency Notices Case Register",
+    "Insolvency Case Register",
+    "Insolvency Petition Case Register",
+    "Arbitration Case Register",
+    "Admiralty Case Register"
+  ],
+  
+  // E. CONSTITUTIONAL & HUMAN RIGHTS CASE REGISTERS
+  "Constitutional & Human Rights": [
+    "Constitutional & Human Rights Petition Case Register",
+    "Constitutional & Human Rights Miscellaneous Case Register"
+  ],
+  
+  // F. JUDICIAL REVIEW CASE REGISTERS
+  "Judicial Review": [
+    "Judicial Review Case Register",
+    "Judicial Review Miscellaneous Application Case Register"
+  ],
+  
+  // G. FAMILY CASE REGISTERS
+  "Family": [
+    "Family Civil Case Register",
+    "Probate and Administration Case Register",
+    "Matrimonial Properties Case Register",
+    "Adoption Case Register",
+    "Family Appeals Case Register",
+    "Family Miscellaneous Case Register",
+    "Divorce Case Register"
+  ]
+} as const;
+
+// ============================================
+// ADDITIONAL REGISTERS
+// (Appended after main categories)
+// ============================================
+
+export const ADDITIONAL_REGISTERS = [
+  "File Movement Register",
+  "Accession Register",
+  "Missing File Register",
+  "Exhibit Register",
+  "Court Assistants Exhibit Register",
+  "Tracking Register for High Court Appeal Pending Due to Lack of Lower Court Record",
+  "Tracking Registers for Appeals to Court of Appeal"
+] as const;
+
+// ============================================
+// ALL REGISTERS (Combined for easy access)
+// ============================================
+
+export const ALL_REGISTERS = {
+  ...CASE_REGISTERS,
+  "Additional": ADDITIONAL_REGISTERS as unknown as readonly string[]
+} as const;
+
+// ============================================
+// CASE CODES - File Folders
 // ============================================
 
 export const CASE_CODES = {
@@ -356,7 +444,7 @@ export const CASE_CODES = {
 } as const;
 
 // ============================================
-// CASE COLORS - Using unique keys (category + name)
+// CASE COLORS - File Folders
 // ============================================
 
 export const CASE_COLORS = {
@@ -422,9 +510,12 @@ export const CASE_COLORS = {
 
 export type CaseCategory = keyof typeof CASE_CATEGORIES;
 export type CaseName = typeof CASE_CATEGORIES[CaseCategory][number];
+export type RegisterCategory = keyof typeof CASE_REGISTERS;
+export type RegisterName = typeof CASE_REGISTERS[RegisterCategory][number];
+export type AdditionalRegister = typeof ADDITIONAL_REGISTERS[number];
 
 // ============================================
-// Helper functions
+// Helper functions - File Folders
 // ============================================
 
 export const CASE_CATEGORIES_LIST = Object.keys(CASE_CATEGORIES) as CaseCategory[];
@@ -443,7 +534,6 @@ export function getCasesByCategory(category: CaseCategory): CaseName[] {
   return CASE_CATEGORIES[category] as unknown as CaseName[];
 }
 
-// Get all case names with their categories
 export function getAllCases(): { category: CaseCategory; name: CaseName; code: string; color: string }[] {
   const result: { category: CaseCategory; name: CaseName; code: string; color: string }[] = [];
 
@@ -463,6 +553,44 @@ export function getAllCases(): { category: CaseCategory; name: CaseName; code: s
 }
 
 // ============================================
+// Helper functions - Registers
+// ============================================
+
+export const REGISTER_CATEGORIES_LIST = Object.keys(CASE_REGISTERS) as RegisterCategory[];
+
+export function getRegistersByCategory(category: RegisterCategory): RegisterName[] {
+  return CASE_REGISTERS[category] as unknown as RegisterName[];
+}
+
+export function getAllRegisters(): { category: string; name: string }[] {
+  const result: { category: string; name: string }[] = [];
+
+  for (const category of REGISTER_CATEGORIES_LIST) {
+    const registers = getRegistersByCategory(category as RegisterCategory);
+    for (const register of registers) {
+      result.push({
+        category,
+        name: register
+      });
+    }
+  }
+
+  // Add additional registers
+  for (const register of ADDITIONAL_REGISTERS) {
+    result.push({
+      category: 'Additional',
+      name: register
+    });
+  }
+
+  return result;
+}
+
+export function getAllRegisterCategories(): string[] {
+  return [...REGISTER_CATEGORIES_LIST, 'Additional'];
+}
+
+// ============================================
 // Draft Helper Functions
 // ============================================
 
@@ -479,7 +607,7 @@ export function getSubmissionStatusText(status: SubmissionStatus): string {
 }
 
 export function getSubmissionStatusColor(status: SubmissionStatus): string {
-  return status === 'draft' ? '#F59E0B' : '#10B981'; // Amber for draft, Green for submitted
+  return status === 'draft' ? '#F59E0B' : '#10B981';
 }
 
 export function calculateTotals(submission: StationRequirementSubmission): {
@@ -514,12 +642,12 @@ export function getStationStatusText(status: StationStatus): string {
 
 export function getStationStatusColor(status: StationStatus): string {
   const colorMap: Record<StationStatus, string> = {
-    'not_started': '#9CA3AF',      // Gray
-    'in_progress': '#F59E0B',      // Amber
-    'submitted': '#3B82F6',        // Blue
-    'pending_review': '#8B5CF6',   // Purple
-    'approved': '#10B981',         // Green
-    'needs_revision': '#EF4444'    // Red
+    'not_started': '#9CA3AF',
+    'in_progress': '#F59E0B',
+    'submitted': '#3B82F6',
+    'pending_review': '#8B5CF6',
+    'approved': '#10B981',
+    'needs_revision': '#EF4444'
   };
   return colorMap[status];
 }
@@ -582,9 +710,9 @@ export function getReviewStatusText(status: ReviewStatus): string {
 
 export function getReviewStatusColor(status: ReviewStatus): string {
   const colorMap: Record<ReviewStatus, string> = {
-    'pending': '#8B5CF6',    // Purple
-    'approved': '#10B981',   // Green
-    'needs_revision': '#EF4444' // Red
+    'pending': '#8B5CF6',
+    'approved': '#10B981',
+    'needs_revision': '#EF4444'
   };
   return colorMap[status];
 }

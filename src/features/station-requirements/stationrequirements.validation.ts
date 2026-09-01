@@ -3,26 +3,61 @@
 import { z } from 'zod';
 import { 
   CASE_CATEGORIES, 
+  CASE_REGISTERS,
+  ADDITIONAL_REGISTERS,
   CaseCategory, 
+  RegisterCategory,
   SubmissionStatus, 
   StationStatus,
   ReviewStatus 
 } from './stationrequirements.types';
 
 // ============================================================
-// HELPER: Get all valid category names
+// HELPER: Get all valid category names (File Folders)
 // ============================================================
 const validCategories = Object.keys(CASE_CATEGORIES);
 
 // ============================================================
-// HELPER: Check if a division is a valid category
+// HELPER: Get all valid register categories
+// ============================================================
+const validRegisterCategories = Object.keys(CASE_REGISTERS);
+
+// ============================================================
+// HELPER: Get all valid register names (including additional)
+// ============================================================
+const getAllValidRegisterNames = (): string[] => {
+  const allRegisters: string[] = [];
+  
+  // Get registers from each category
+  for (const category of validRegisterCategories) {
+    const registers = CASE_REGISTERS[category as RegisterCategory] as readonly string[];
+    allRegisters.push(...registers);
+  }
+  
+  // Add additional registers
+  allRegisters.push(...ADDITIONAL_REGISTERS);
+  
+  return allRegisters;
+};
+
+const allValidRegisterNames = getAllValidRegisterNames();
+
+// ============================================================
+// HELPER: Check if a division is a valid file folder category
 // ============================================================
 const isValidCategory = (division: string): division is CaseCategory => {
   return validCategories.includes(division);
 };
 
 // ============================================================
-// HELPER: Check if a name belongs to a category
+// HELPER: Check if a division is a valid register category
+// ============================================================
+const isValidRegisterCategory = (division: string): division is RegisterCategory => {
+  return validRegisterCategories.includes(division) || division === 'Additional';
+};
+
+// ============================================================
+// HELPER: Check if a name belongs to a file folder category
 // ============================================================
 const isValidNameForCategory = (division: string, name: string): boolean => {
   if (!isValidCategory(division)) return false;
@@ -31,7 +66,20 @@ const isValidNameForCategory = (division: string, name: string): boolean => {
 };
 
 // ============================================================
-// HELPER: Get valid names for a category
+// HELPER: Check if a name belongs to a register category
+// ============================================================
+const isValidRegisterNameForCategory = (division: string, name: string): boolean => {
+  if (division === 'Additional') {
+    return ADDITIONAL_REGISTERS.includes(name as any);
+  }
+  
+  if (!isValidRegisterCategory(division)) return false;
+  const validNames = CASE_REGISTERS[division as RegisterCategory] as readonly string[];
+  return validNames.includes(name);
+};
+
+// ============================================================
+// HELPER: Get valid names for a file folder category
 // ============================================================
 const getValidNames = (division: string): string[] => {
   if (!isValidCategory(division)) return [];
@@ -39,7 +87,19 @@ const getValidNames = (division: string): string[] => {
 };
 
 // ============================================================
-// Item schema for a single requirement item with validation against CASE_CATEGORIES
+// HELPER: Get valid names for a register category
+// ============================================================
+const getValidRegisterNames = (division: string): string[] => {
+  if (division === 'Additional') {
+    return [...ADDITIONAL_REGISTERS];
+  }
+  
+  if (!isValidRegisterCategory(division)) return [];
+  return CASE_REGISTERS[division as RegisterCategory] as unknown as string[];
+};
+
+// ============================================================
+// Item schema for a single file folder item
 // ============================================================
 export const stationRequirementItemSchema = z.object({
   division: z
@@ -71,6 +131,38 @@ export const stationRequirementItemSchema = z.object({
 });
 
 // ============================================================
+// Item schema for a single register item
+// ============================================================
+export const stationRegisterItemSchema = z.object({
+  division: z
+    .string()
+    .min(1, 'Division is required')
+    .refine(
+      (val: string) => isValidRegisterCategory(val),
+      {
+        message: `Division must be one of: ${[...validRegisterCategories, 'Additional'].join(', ')}`,
+      }
+    ),
+  name: z
+    .string()
+    .min(1, 'Register name is required'),
+  quantity: z
+    .number()
+    .int()
+    .min(0, 'Quantity must be 0 or greater'),
+}).superRefine((data, ctx) => {
+  // Validate that the name belongs to the division category
+  if (!isValidRegisterNameForCategory(data.division, data.name)) {
+    const validNames = getValidRegisterNames(data.division);
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `"${data.name}" is not valid for category "${data.division}". Valid names: ${validNames.join(', ') || 'N/A'}`,
+      path: ['name'],
+    });
+  }
+});
+
+// ============================================================
 // Submission status validation
 // ============================================================
 const submissionStatusSchema = z.enum(['draft', 'submitted'] as const);
@@ -86,7 +178,7 @@ const reviewStatusSchema = z.enum(['pending', 'approved', 'needs_revision'] as c
 export const createSubmissionSchema = z.object({
   station: z.string().min(1, 'Station name is required'),
   fileFolders: z.array(stationRequirementItemSchema).optional().default([]),
-  registers: z.array(stationRequirementItemSchema).optional().default([]),
+  registers: z.array(stationRegisterItemSchema).optional().default([]),
   status: submissionStatusSchema.optional().default('draft'),
 }).superRefine((data, ctx) => {
   const totalFileFolders = data.fileFolders.reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
@@ -117,7 +209,7 @@ export const updateSubmissionSchema = z.object({
   body: z.object({
     station: z.string().min(1, 'Station name is required').optional(),
     fileFolders: z.array(stationRequirementItemSchema).optional(),
-    registers: z.array(stationRequirementItemSchema).optional(),
+    registers: z.array(stationRegisterItemSchema).optional(),
     status: submissionStatusSchema.optional(),
     reviewStatus: reviewStatusSchema.optional(),
     adminNotes: z.string().max(2000, 'Admin notes must be less than 2000 characters').optional(),
@@ -145,10 +237,8 @@ export const submitDraftSchema = z.object({
   }),
 });
 
-// stationrequirements.validation.ts - Fixed getSubmissionsSchema
-
 // ============================================================
-// Get submissions query schema - FIXED with proper handling
+// Get submissions query schema
 // ============================================================
 export const getSubmissionsSchema = z.object({
   station: z.string().optional(),
@@ -176,7 +266,7 @@ export const getSubmissionsSchema = z.object({
 });
 
 // ============================================================
-// Get station report query schema - FIXED
+// Get station report query schema
 // ============================================================
 export const getStationReportSchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'submitted', 'pending_review', 'approved', 'needs_revision'] as const).optional(),
@@ -278,6 +368,46 @@ export const getAllValidCases = (): { category: string; names: string[] }[] => {
 };
 
 // ============================================================
+// Helper function to get all valid register categories (for frontend use)
+// ============================================================
+export const getValidRegisterCategories = (): string[] => {
+  return [...validRegisterCategories, 'Additional'];
+};
+
+// ============================================================
+// Helper function to get valid register names for a category (for frontend use)
+// ============================================================
+export const getValidRegisterNamesForCategory = (category: string): string[] => {
+  if (category === 'Additional') {
+    return [...ADDITIONAL_REGISTERS];
+  }
+  
+  if (!isValidRegisterCategory(category)) return [];
+  return CASE_REGISTERS[category as RegisterCategory] as unknown as string[];
+};
+
+// ============================================================
+// Helper function to get all valid registers (for frontend use)
+// ============================================================
+export const getAllValidRegisters = (): { category: string; names: string[] }[] => {
+  const result: { category: string; names: string[] }[] = [];
+  
+  for (const category of validRegisterCategories) {
+    result.push({
+      category,
+      names: CASE_REGISTERS[category as RegisterCategory] as unknown as string[],
+    });
+  }
+  
+  result.push({
+    category: 'Additional',
+    names: [...ADDITIONAL_REGISTERS],
+  });
+  
+  return result;
+};
+
+// ============================================================
 // Helper: Validate station requirements for submission
 // ============================================================
 export const validateStationRequirements = (
@@ -302,13 +432,17 @@ export const validateStationRequirements = (
 
   // Check registers
   registers.forEach((item, index) => {
-    if (!isValidCategory(item.division)) {
-      errors.push(`Register ${index + 1}: Invalid division "${item.division}"`);
+    // Check if division is valid register category
+    if (!isValidRegisterCategory(item.division)) {
+      errors.push(`Register ${index + 1}: Invalid division "${item.division}". Valid categories: ${[...validRegisterCategories, 'Additional'].join(', ')}`);
     }
-    if (!isValidNameForCategory(item.division, item.name)) {
-      const validNames = getValidNames(item.division);
+    
+    // Check if name is valid for the division
+    if (!isValidRegisterNameForCategory(item.division, item.name)) {
+      const validNames = getValidRegisterNames(item.division);
       errors.push(`Register ${index + 1}: "${item.name}" is not valid for category "${item.division}". Valid: ${validNames.join(', ')}`);
     }
+    
     if (item.quantity < 0) {
       errors.push(`Register ${index + 1}: Quantity cannot be negative`);
     }
@@ -419,6 +553,46 @@ export const caseNamesSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: `Invalid names for category "${data.category}": ${invalidNames.join(', ')}. Valid names: ${validNames.join(', ')}`,
       path: ['names'],
+    });
+  }
+});
+
+// ============================================================
+// Schema for validating a single register category
+// ============================================================
+export const registerCategorySchema = z.object({
+  category: z
+    .string()
+    .refine(
+      (val: string) => isValidRegisterCategory(val),
+      {
+        message: `Category must be one of: ${[...validRegisterCategories, 'Additional'].join(', ')}`,
+      }
+    ),
+});
+
+// ============================================================
+// Schema for validating a single register name
+// ============================================================
+export const registerNameSchema = z.object({
+  category: z
+    .string()
+    .refine(
+      (val: string) => isValidRegisterCategory(val),
+      {
+        message: `Category must be one of: ${[...validRegisterCategories, 'Additional'].join(', ')}`,
+      }
+    ),
+  name: z
+    .string()
+    .min(1, 'Register name is required'),
+}).superRefine((data, ctx) => {
+  if (!isValidRegisterNameForCategory(data.category, data.name)) {
+    const validNames = getValidRegisterNames(data.category);
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `"${data.name}" is not valid for category "${data.category}". Valid names: ${validNames.join(', ') || 'N/A'}`,
+      path: ['name'],
     });
   }
 });

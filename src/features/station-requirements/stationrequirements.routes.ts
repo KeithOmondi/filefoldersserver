@@ -12,10 +12,14 @@ import {
   getSubmissionTotalsHandler,
   getUniqueStationsHandler,
   getCaseCategoriesHandler,
+  getRegisterCategoriesHandler,
+  getRegistersHandler,
   getValidCasesHandler,
+  getValidRegistersHandler,
   getStationReportHandler,
   getAdminDashboardHandler,
   getReviewQueueHandler,
+  getMySubmissionsHandler, // Add this
 } from './stationrequirements.controller';
 import { 
   protect, 
@@ -46,14 +50,59 @@ router.use(protect);
 // ✅ Shared Routes (Accessible by BOTH Admin and DR)
 // ============================================================
 
-// GET /api/station-requirements/categories - Get all case categories with their names
+// GET /api/station-requirements/categories - Get all case categories with their names (File Folders)
 router.get('/categories', adminOrDr, getCaseCategoriesHandler);
+
+// GET /api/station-requirements/register-categories - Get all register categories with their names
+router.get('/register-categories', adminOrDr, getRegisterCategoriesHandler);
+
+// GET /api/station-requirements/registers - Get all registers (flat list with categories)
+router.get('/registers', adminOrDr, getRegistersHandler);
 
 // GET /api/station-requirements/valid-cases - Get all valid case categories and names for frontend
 router.get('/valid-cases', adminOrDr, getValidCasesHandler);
 
+// GET /api/station-requirements/valid-registers - Get all valid register categories and names for frontend
+router.get('/valid-registers', adminOrDr, getValidRegistersHandler);
+
 // GET /api/station-requirements/stations - Get all unique stations
 router.get('/stations', adminOrDr, getUniqueStationsHandler);
+
+// ============================================================
+// ✅ DR Only Routes - Must come BEFORE admin routes
+// ============================================================
+
+// GET /api/station-requirements/my-submissions - DRs can view their own submissions (drafts + submitted)
+router.get(
+  '/my-submissions',
+  drOnly,
+  validate(getSubmissionsSchema),
+  getMySubmissionsHandler
+);
+
+// POST /api/station-requirements - DRs can create submissions (draft or submitted)
+router.post(
+  '/',
+  drOnly,
+  validate(createSubmissionSchema),
+  createSubmissionHandler
+);
+
+// POST /api/station-requirements/:id/submit - DRs can submit their draft
+router.post(
+  '/:id/submit',
+  drOnly,
+  validate(submitDraftSchema),
+  submitDraftHandler
+);
+
+// PUT /api/station-requirements/:id - DRs can update their own submission
+router.put(
+  '/:id',
+  drOnly,
+  validate(updateSubmissionSchema),
+  updateSubmissionHandler
+);
 
 // ============================================================
 // ✅ Admin Only Routes - SPECIFIC routes FIRST
@@ -90,34 +139,6 @@ router.get(
   '/review-queue',
   adminOnly,
   getReviewQueueHandler
-);
-
-// ============================================================
-// ✅ DR (Deputy Registrar) Only Routes
-// ============================================================
-
-// POST /api/station-requirements - DRs can create submissions (draft or submitted)
-router.post(
-  '/',
-  drOnly,
-  validate(createSubmissionSchema),
-  createSubmissionHandler
-);
-
-// POST /api/station-requirements/:id/submit - DRs can submit their draft
-router.post(
-  '/:id/submit',
-  drOnly,
-  validate(submitDraftSchema),
-  submitDraftHandler
-);
-
-// PUT /api/station-requirements/:id - DRs can update their own submission
-router.put(
-  '/:id',
-  drOnly,
-  validate(updateSubmissionSchema),
-  updateSubmissionHandler
 );
 
 // ============================================================

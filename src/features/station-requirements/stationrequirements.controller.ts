@@ -10,7 +10,10 @@ import {
   SubmissionStatus,
   ReviewStatus,
   CASE_CATEGORIES,
+  CASE_REGISTERS,
+  ADDITIONAL_REGISTERS,
   CaseCategory,
+  RegisterCategory,
   calculateTotals,
 } from './stationrequirements.types';
 import { catchAsync } from '../../utils/catchasync';
@@ -18,7 +21,7 @@ import { sendResponse } from '../../utils/Apiresponse';
 import { AppError } from '../../utils/Apperror';
 import { sendSubmissionConfirmation } from '../../utils/sendMail';
 
-// Extend Express Request to include user
+// Extend Express Request to include user and validated data
 interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
@@ -26,6 +29,10 @@ interface AuthenticatedRequest extends Request {
     fullName?: string;
     role: 'admin' | 'dr';
   };
+  validatedData?: any;
+  validatedQuery?: any;
+  validatedBody?: any;
+  validatedParams?: any;
 }
 
 // ============================================================
@@ -39,6 +46,10 @@ const isValidCaseCategory = (category: string): category is CaseCategory => {
 const isValidCaseName = (category: CaseCategory, name: string): boolean => {
   const cases = CASE_CATEGORIES[category] as readonly string[];
   return cases.includes(name);
+};
+
+const isValidRegisterCategory = (category: string): category is RegisterCategory | 'Additional' => {
+  return Object.keys(CASE_REGISTERS).includes(category) || category === 'Additional';
 };
 
 // Type guard to check if value is a valid StationRequirementItem
@@ -83,6 +94,46 @@ const logItemDetails = (items: unknown[], type: string): void => {
       }
       if (isValidCategory && !isValidName) {
         console.warn(`  ⚠️  Invalid name: "${item.name}" for category "${item.division}". Valid names: ${CASE_CATEGORIES[item.division as CaseCategory].join(', ')}`);
+      }
+    } else {
+      console.warn(`  [${index}] Invalid item:`, item);
+    }
+  });
+};
+
+// Helper to log register item details
+const logRegisterDetails = (items: unknown[], type: string): void => {
+  if (!Array.isArray(items)) {
+    console.warn(`⚠️ ${type} is not an array!`);
+    return;
+  }
+
+  const allRegisterCategories = [...Object.keys(CASE_REGISTERS), 'Additional'];
+
+  console.log(`🔍 [${type}] array length: ${items.length}`);
+
+  items.forEach((item: unknown, index: number) => {
+    if (isValidRequirementItem(item)) {
+      const isValidCategory = isValidRegisterCategory(item.division);
+      
+      let validNames: string[] = [];
+      if (item.division === 'Additional') {
+        validNames = [...ADDITIONAL_REGISTERS];
+      } else if (isValidCategory) {
+        validNames = CASE_REGISTERS[item.division as RegisterCategory] as unknown as string[];
+      }
+      
+      const isValidName = isValidCategory && validNames.includes(item.name);
+
+      console.log(`  [${index}] division: ${item.division} (${typeof item.division}) ${isValidCategory ? '✅' : '❌'}`);
+      console.log(`  [${index}] name: ${item.name} (${typeof item.name}) ${isValidName ? '✅' : '❌'}`);
+      console.log(`  [${index}] quantity: ${item.quantity} (${typeof item.quantity})`);
+
+      if (!isValidCategory) {
+        console.warn(`  ⚠️  Invalid register category: "${item.division}". Valid categories: ${allRegisterCategories.join(', ')}`);
+      }
+      if (isValidCategory && !isValidName) {
+        console.warn(`  ⚠️  Invalid register name: "${item.name}" for category "${item.division}". Valid names: ${validNames.join(', ')}`);
       }
     } else {
       console.warn(`  [${index}] Invalid item:`, item);
@@ -162,7 +213,7 @@ const sendConfirmationEmail = async (
 
 // ============================================================
 // GET /api/station-requirements/categories
-// Get all valid case categories and their names
+// Get all valid case categories and their names (File Folders)
 // ============================================================
 export const getCaseCategoriesHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
   console.log('🔍 [Controller] getCaseCategories');
@@ -175,57 +226,78 @@ export const getCaseCategoriesHandler = catchAsync(async (req: AuthenticatedRequ
 });
 
 // ============================================================
+// GET /api/station-requirements/register-categories
+// Get all valid register categories and their names
+// ============================================================
+export const getRegisterCategoriesHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getRegisterCategories');
+
+  const categories = stationRequirementsService.getAllValidRegisters();
+
+  console.log('✅ [Controller] Register categories retrieved:', categories.length);
+
+  sendResponse(res, 200, { categories }, 'Register categories retrieved successfully');
+});
+
+// ============================================================
+// GET /api/station-requirements/registers
+// Get all valid register names (flat list with categories)
+// ============================================================
+export const getRegistersHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getRegisters');
+
+  const allRegisters = stationRequirementsService.getAllValidRegisters();
+  
+  // Also return a flat list for easier frontend use
+  const flatRegisters: { category: string; name: string }[] = [];
+  for (const category of allRegisters) {
+    for (const name of category.names) {
+      flatRegisters.push({ category: category.category, name });
+    }
+  }
+
+  console.log('✅ [Controller] Registers retrieved:', flatRegisters.length);
+
+  sendResponse(
+    res, 
+    200, 
+    { 
+      categories: allRegisters,
+      registers: flatRegisters 
+    }, 
+    'Registers retrieved successfully'
+  );
+});
+
+// ============================================================
 // POST /api/station-requirements
 // Create new submission (draft or submitted)
 // ============================================================
 export const createSubmissionHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  console.log('🔍 [1] Raw request body:', JSON.stringify(req.body, null, 2));
-  console.log('🔍 [1] Raw body type:', typeof req.body);
-  console.log('🔍 [1] Raw body keys:', Object.keys(req.body || {}));
-
-  // Check for undefined values
-  console.log('🔍 [2] Checking for undefined values in request body:');
-  findUndefinedValues(req.body);
-
-  // Check specific fields
-  console.log('🔍 [3] Field checks:');
-  console.log('  - station:', req.body.station, `(${typeof req.body.station})`);
-  console.log('  - fileFolders:', req.body.fileFolders, `(${typeof req.body.fileFolders})`);
-  console.log('  - registers:', req.body.registers, `(${typeof req.body.registers})`);
-  console.log('  - status:', req.body.status, `(${typeof req.body.status})`);
-
-  // Check fileFolders array with validation
-  logItemDetails(req.body.fileFolders || [], 'fileFolders');
-
-  // Check registers array with validation
-  logItemDetails(req.body.registers || [], 'registers');
+  // ✅ USE VALIDATED BODY from middleware
+  const validatedBody = req.validatedBody || req.body;
+  
+  console.log('🔍 [Controller] createSubmission - Using validated data');
+  console.log('🔍 [Controller] validatedBody:', JSON.stringify(validatedBody, null, 2));
 
   // User info
-  console.log('🔍 [6] User info:', {
-    userId: req.user?.id,
-    userRole: req.user?.role,
-    userEmail: req.user?.email,
-    userName: req.user?.fullName,
-  });
-
-  // Get userId from authenticated request
   const userId = req.user?.id;
   const userEmail = req.user?.email;
   const userName = req.user?.fullName;
 
-  // Prepare the input
+  // Prepare the input from validated data
   const input: CreateSubmissionInput = {
-    station: req.body.station,
-    fileFolders: req.body.fileFolders || [],
-    registers: req.body.registers || [],
-    status: req.body.status || 'draft',
+    station: validatedBody.station,
+    fileFolders: validatedBody.fileFolders || [],
+    registers: validatedBody.registers || [],
+    status: validatedBody.status || 'draft',
   };
 
-  console.log('🔍 [8] Final input to service:', JSON.stringify(input, null, 2));
+  console.log('🔍 [Controller] Final input to service:', JSON.stringify(input, null, 2));
 
   const submission = await stationRequirementsService.createSubmission(input, userId, userEmail, userName);
 
-  console.log('✅ [9] Submission created successfully:', {
+  console.log('✅ [Controller] Submission created successfully:', {
     id: submission.id,
     station: submission.station,
     status: submission.status,
@@ -239,21 +311,28 @@ export const createSubmissionHandler = catchAsync(async (req: AuthenticatedReque
   sendResponse(res, 201, { submission }, 'Submission created successfully');
 });
 
-// In stationrequirements.controller.ts - update getSubmissionsHandler
-
+// ============================================================
+// GET /api/station-requirements
+// Get submissions with filtering
+// ============================================================
 export const getSubmissionsHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  // Build query object from req.query with proper parsing
+  // ✅ USE VALIDATED QUERY from middleware
+  const validatedQuery = req.validatedQuery || req.query;
+  
+  console.log('🔍 [Controller] getSubmissions - Using validated query:', validatedQuery);
+
+  // Build query object from validated data
   const query: GetSubmissionsQuery = {
-    station: req.query.station as string | undefined,
-    status: req.query.status as SubmissionStatus | undefined,
-    reviewStatus: req.query.reviewStatus as ReviewStatus | undefined,
-    fromDate: req.query.fromDate as string | undefined,
-    toDate: req.query.toDate as string | undefined,
-    page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-    limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 20,
-    sortBy: req.query.sortBy as 'updatedAt' | 'submittedAt' | 'station' || 'updatedAt',
-    sortOrder: req.query.sortOrder as 'asc' | 'desc' || 'desc',
-    adminView: req.query.adminView === 'true' || req.user?.role === 'admin',
+    station: validatedQuery.station as string | undefined,
+    status: validatedQuery.status as SubmissionStatus | undefined,
+    reviewStatus: validatedQuery.reviewStatus as ReviewStatus | undefined,
+    fromDate: validatedQuery.fromDate as string | undefined,
+    toDate: validatedQuery.toDate as string | undefined,
+    page: validatedQuery.page || 1,
+    limit: validatedQuery.limit || 20,
+    sortBy: validatedQuery.sortBy || 'updatedAt',
+    sortOrder: validatedQuery.sortOrder || 'desc',
+    adminView: validatedQuery.adminView === true || req.user?.role === 'admin',
   };
 
   console.log('🔍 [Controller] getSubmissions query:', query);
@@ -262,7 +341,6 @@ export const getSubmissionsHandler = catchAsync(async (req: AuthenticatedRequest
 
   console.log('✅ [Controller] Submissions retrieved:', {
     total: result.total,
-    firstSubmissionId: result.submissions[0]?.id,
     submissionsCount: result.submissions.length,
   });
 
@@ -285,13 +363,15 @@ export const getSubmissionsHandler = catchAsync(async (req: AuthenticatedRequest
 // Get single submission by ID
 // ============================================================
 export const getSubmissionByIdHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // ✅ USE VALIDATED PARAMS from middleware
+  const validatedParams = req.validatedParams || req.params;
+  const id = validatedParams.id;
 
   if (!id) {
     throw new AppError('Submission ID is required', 400);
   }
 
-  console.log('🔍 [Controller] getSubmissionById:', id);
+  console.log('🔍 [Controller] getSubmissionById - Using validated params:', id);
 
   const submission = await stationRequirementsService.getSubmissionById(id);
 
@@ -312,29 +392,25 @@ export const getSubmissionByIdHandler = catchAsync(async (req: AuthenticatedRequ
 // Update submission
 // ============================================================
 export const updateSubmissionHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // ✅ USE VALIDATED PARAMS AND BODY from middleware
+  const validatedParams = req.validatedParams || req.params;
+  const validatedBody = req.validatedBody || req.body;
+  
+  const id = validatedParams.id;
 
   if (!id) {
     throw new AppError('Submission ID is required', 400);
   }
 
-  console.log('🔍 [Controller] updateSubmission:', { id, body: req.body });
-
-  // Validate update data
-  if (req.body.fileFolders) {
-    logItemDetails(req.body.fileFolders, 'fileFolders');
-  }
-  if (req.body.registers) {
-    logItemDetails(req.body.registers, 'registers');
-  }
+  console.log('🔍 [Controller] updateSubmission - Using validated data:', { id, body: validatedBody });
 
   const input: UpdateSubmissionInput = {
-    station: req.body.station,
-    fileFolders: req.body.fileFolders,
-    registers: req.body.registers,
-    status: req.body.status,
-    reviewStatus: req.body.reviewStatus,
-    adminNotes: req.body.adminNotes,
+    station: validatedBody.station,
+    fileFolders: validatedBody.fileFolders,
+    registers: validatedBody.registers,
+    status: validatedBody.status,
+    reviewStatus: validatedBody.reviewStatus,
+    adminNotes: validatedBody.adminNotes,
   };
 
   const userId = req.user?.id;
@@ -345,7 +421,6 @@ export const updateSubmissionHandler = catchAsync(async (req: AuthenticatedReque
     id: submission.id,
     station: submission.station,
     status: submission.status,
-    updatedBy: submission.submitterName || submission.submitterEmail || 'Unknown User',
   });
 
   sendResponse(res, 200, { submission }, 'Submission updated successfully');
@@ -356,15 +431,19 @@ export const updateSubmissionHandler = catchAsync(async (req: AuthenticatedReque
 // Submit a draft
 // ============================================================
 export const submitDraftHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // ✅ USE VALIDATED PARAMS AND BODY from middleware
+  const validatedParams = req.validatedParams || req.params;
+  const validatedBody = req.validatedBody || req.body;
+  
+  const id = validatedParams.id;
 
   if (!id) {
     throw new AppError('Submission ID is required', 400);
   }
 
-  console.log('🔍 [Controller] submitDraft:', id);
+  console.log('🔍 [Controller] submitDraft - Using validated data:', id);
 
-  const sendEmail = req.body.sendEmail !== false;
+  const sendEmail = validatedBody.sendEmail !== false;
   const userId = req.user?.id;
 
   const submission = await stationRequirementsService.submitDraft(id, userId, sendEmail);
@@ -388,7 +467,11 @@ export const submitDraftHandler = catchAsync(async (req: AuthenticatedRequest, r
 // Admin review submission
 // ============================================================
 export const adminReviewHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // ✅ USE VALIDATED PARAMS AND BODY from middleware
+  const validatedParams = req.validatedParams || req.params;
+  const validatedBody = req.validatedBody || req.body;
+  
+  const id = validatedParams.id;
 
   if (!id) {
     throw new AppError('Submission ID is required', 400);
@@ -399,9 +482,9 @@ export const adminReviewHandler = catchAsync(async (req: AuthenticatedRequest, r
     throw new AppError('Only administrators can review submissions', 403);
   }
 
-  console.log('🔍 [Controller] adminReview:', { id, body: req.body });
+  console.log('🔍 [Controller] adminReview - Using validated data:', { id, body: validatedBody });
 
-  const { reviewStatus, adminNotes, sendNotification = true } = req.body;
+  const { reviewStatus, adminNotes, sendNotification = true } = validatedBody;
 
   if (!reviewStatus) {
     throw new AppError('Review status is required', 400);
@@ -419,24 +502,15 @@ export const adminReviewHandler = catchAsync(async (req: AuthenticatedRequest, r
     id: submission.id,
     station: submission.station,
     reviewStatus: submission.reviewStatus,
-    reviewedBy: req.user?.id,
   });
 
   // Send notification email if requested
   if (sendNotification && submission.submitterEmail) {
     try {
       // TODO: Implement admin review notification email
-      // await sendAdminReviewNotification(
-      //   submission.submitterEmail,
-      //   submission.submitterName || 'User',
-      //   submission.station,
-      //   reviewStatus,
-      //   adminNotes
-      // );
       console.log('✅ [Controller] Review notification would be sent to:', submission.submitterEmail);
     } catch (emailError) {
       console.error('❌ [Controller] Failed to send review notification:', emailError);
-      // Don't throw - email failure shouldn't stop the review
     }
   }
 
@@ -448,20 +522,23 @@ export const adminReviewHandler = catchAsync(async (req: AuthenticatedRequest, r
 // Get station report (admin dashboard)
 // ============================================================
 export const getStationReportHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  // ✅ USE VALIDATED QUERY from middleware
+  const validatedQuery = req.validatedQuery || req.query;
+  
   // Only admins can view the report
   if (req.user?.role !== 'admin') {
     throw new AppError('Only administrators can view the station report', 403);
   }
 
   const query: GetStationReportQuery = {
-    status: req.query.status as any,
-    fromDate: req.query.fromDate as string | undefined,
-    toDate: req.query.toDate as string | undefined,
-    page: req.query.page ? parseInt(req.query.page as string, 10) : undefined,
-    limit: req.query.limit ? parseInt(req.query.limit as string, 10) : undefined,
+    status: validatedQuery.status as any,
+    fromDate: validatedQuery.fromDate as string | undefined,
+    toDate: validatedQuery.toDate as string | undefined,
+    page: validatedQuery.page || undefined,
+    limit: validatedQuery.limit || undefined,
   };
 
-  console.log('🔍 [Controller] getStationReport:', query);
+  console.log('🔍 [Controller] getStationReport - Using validated query:', query);
 
   const report = await stationRequirementsService.getStationReport(query);
 
@@ -525,13 +602,15 @@ export const getReviewQueueHandler = catchAsync(async (req: AuthenticatedRequest
 // Delete submission
 // ============================================================
 export const deleteSubmissionHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  // ✅ USE VALIDATED PARAMS from middleware
+  const validatedParams = req.validatedParams || req.params;
+  const id = validatedParams.id;
 
   if (!id) {
     throw new AppError('Submission ID is required', 400);
   }
 
-  console.log('🔍 [Controller] deleteSubmission:', id);
+  console.log('🔍 [Controller] deleteSubmission - Using validated params:', id);
 
   await stationRequirementsService.deleteSubmission(id);
 
@@ -570,7 +649,7 @@ export const getUniqueStationsHandler = catchAsync(async (req: AuthenticatedRequ
 
 // ============================================================
 // GET /api/station-requirements/valid-cases
-// Get all valid case categories and names for frontend
+// Get all valid case categories and names for frontend (File Folders)
 // ============================================================
 export const getValidCasesHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
   console.log('🔍 [Controller] getValidCases');
@@ -587,6 +666,88 @@ export const getValidCasesHandler = catchAsync(async (req: AuthenticatedRequest,
 });
 
 // ============================================================
+// GET /api/station-requirements/valid-registers
+// Get all valid register categories and names for frontend
+// ============================================================
+export const getValidRegistersHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getValidRegisters');
+
+  const categories = stationRequirementsService.getAllValidRegisters();
+
+  console.log('✅ [Controller] Valid registers retrieved:', categories.length);
+
+  sendResponse(res, 200, { categories }, 'Valid registers retrieved successfully');
+});
+
+
+
+
+// controllers/stationrequirements.controller.ts
+
+// GET /api/station-requirements/my-submissions
+// DRs can view their own submissions (drafts and submitted)
+export const getMySubmissionsHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  // ✅ USE VALIDATED QUERY from middleware
+  const validatedQuery = req.validatedQuery || req.query;
+  
+  // Only DRs can access this
+  if (req.user?.role !== 'dr') {
+    throw new AppError('Only Deputy Registrars can view their own submissions', 403);
+  }
+
+  const userId = req.user?.id;
+
+  if (!userId) {
+    throw new AppError('User ID not found', 401);
+  }
+
+  console.log('🔍 [Controller] getMySubmissions - User:', {
+    userId,
+    userRole: req.user?.role,
+    userEmail: req.user?.email,
+  });
+
+  // Build query object from validated data
+  const query: GetSubmissionsQuery = {
+    station: validatedQuery.station as string | undefined,
+    status: validatedQuery.status as SubmissionStatus | undefined,
+    reviewStatus: validatedQuery.reviewStatus as ReviewStatus | undefined,
+    fromDate: validatedQuery.fromDate as string | undefined,
+    toDate: validatedQuery.toDate as string | undefined,
+    page: validatedQuery.page || 1,
+    limit: validatedQuery.limit || 20,
+    sortBy: validatedQuery.sortBy || 'updatedAt',
+    sortOrder: validatedQuery.sortOrder || 'desc',
+    // DRs only see their own submissions
+    adminView: false,
+    // Filter by submitter
+    //submittedBy: userId,
+  };
+
+  console.log('🔍 [Controller] getMySubmissions query:', query);
+
+  const result = await stationRequirementsService.getSubmissions(query);
+
+  console.log('✅ [Controller] My submissions retrieved:', {
+    total: result.total,
+    submissionsCount: result.submissions.length,
+  });
+
+  sendResponse(
+    res,
+    200,
+    {
+      submissions: result.submissions,
+      total: result.total,
+      page: query.page || 1,
+      limit: query.limit || 20,
+      hasMore: (query.page || 1) * (query.limit || 20) < result.total,
+    },
+    'Your submissions retrieved successfully'
+  );
+});
+
+// ============================================================
 // EXPORT
 // ============================================================
 export default {
@@ -600,7 +761,10 @@ export default {
   getSubmissionTotalsHandler,
   getUniqueStationsHandler,
   getCaseCategoriesHandler,
+  getRegisterCategoriesHandler,
+  getRegistersHandler,
   getValidCasesHandler,
+  getValidRegistersHandler,
   getStationReportHandler,
   getAdminDashboardHandler,
   getReviewQueueHandler,
