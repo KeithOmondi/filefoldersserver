@@ -33,6 +33,8 @@ export type StationStatus =
   | 'approved'        // Approved by admin
   | 'needs_revision'; // Needs changes
 
+// stationrequirements.types.ts
+
 export interface StationSubmissionStatus {
   station: string;
   status: StationStatus;
