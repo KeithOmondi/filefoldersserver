@@ -302,8 +302,7 @@ export const CASE_REGISTERS = {
     "Criminal Application/Murder Case Register",
     "Criminal Miscellaneous Application Case Register",
     "Criminal Revision Case Register",
-    "Criminal Appeal Case Register",
-    "Certified Urgent Applications Tracking Register"
+    "Criminal Appeal Case Register"
   ],
   
   // B. ANTI-CORRUPTION & ECONOMIC CRIMES CASE REGISTERS
@@ -364,18 +363,14 @@ export const CASE_REGISTERS = {
 // (Appended after main categories)
 // ============================================
 
-// ============================================
-// ADDITIONAL REGISTERS
-// (Appended after main categories)
-// ============================================
-
 export const ADDITIONAL_REGISTERS = [
   "File Movement Register",
   "Accession Register",
   "Missing File Register",
   "Exhibit Register",
   "Court Assistants Exhibit Register",
-  "Certified Urgent Applications Tracking Register",  // ✅ Already added here
+  "Certified Urgent Applications Tracking Register",
+  "Injunction Register", // ✅ Added here
   "Tracking Register for High Court Appeal Pending Due to Lack of Lower Court Record",
   "Tracking Registers for Appeals to Court of Appeal"
 ] as const;
