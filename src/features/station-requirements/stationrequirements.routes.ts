@@ -5,13 +5,17 @@ import {
   createSubmissionHandler,
   getSubmissionsHandler,
   getSubmissionByIdHandler,
-  getSubmissionsByStationHandler,
   updateSubmissionHandler,
+  submitDraftHandler,
+  adminReviewHandler,
   deleteSubmissionHandler,
   getSubmissionTotalsHandler,
   getUniqueStationsHandler,
   getCaseCategoriesHandler,
   getValidCasesHandler,
+  getStationReportHandler,
+  getAdminDashboardHandler,
+  getReviewQueueHandler,
 } from './stationrequirements.controller';
 import { 
   protect, 
@@ -25,6 +29,9 @@ import {
   getSubmissionSchema,
   updateSubmissionSchema,
   deleteSubmissionSchema,
+  submitDraftSchema,
+  adminReviewSchema,
+  getStationReportSchema,
 } from './stationrequirements.validation';
 import { validate } from '../../middleware/validate.middleware';
 
@@ -63,11 +70,33 @@ router.get(
   getSubmissionsHandler
 );
 
+// GET /api/station-requirements/report - Admin station report
+router.get(
+  '/report',
+  adminOnly,
+  validate(getStationReportSchema),
+  getStationReportHandler
+);
+
+// GET /api/station-requirements/dashboard - Admin dashboard stats
+router.get(
+  '/dashboard',
+  adminOnly,
+  getAdminDashboardHandler
+);
+
+// GET /api/station-requirements/review-queue - Admin review queue
+router.get(
+  '/review-queue',
+  adminOnly,
+  getReviewQueueHandler
+);
+
 // ============================================================
 // ✅ DR (Deputy Registrar) Only Routes
 // ============================================================
 
-// POST /api/station-requirements - DRs can create submissions
+// POST /api/station-requirements - DRs can create submissions (draft or submitted)
 router.post(
   '/',
   drOnly,
@@ -75,12 +104,12 @@ router.post(
   createSubmissionHandler
 );
 
-// GET /api/station-requirements/station/:station - DRs can view their station's submissions
-// ⚠️ IMPORTANT: Put /station/:station BEFORE /:id
-router.get(
-  '/station/:station',
+// POST /api/station-requirements/:id/submit - DRs can submit their draft
+router.post(
+  '/:id/submit',
   drOnly,
-  getSubmissionsByStationHandler
+  validate(submitDraftSchema),
+  submitDraftHandler
 );
 
 // PUT /api/station-requirements/:id - DRs can update their own submission
@@ -89,6 +118,26 @@ router.put(
   drOnly,
   validate(updateSubmissionSchema),
   updateSubmissionHandler
+);
+
+// ============================================================
+// ✅ Admin Only Routes with ID parameter
+// ============================================================
+
+// POST /api/station-requirements/:id/review - Admin reviews a submission
+router.post(
+  '/:id/review',
+  adminOnly,
+  validate(adminReviewSchema),
+  adminReviewHandler
+);
+
+// DELETE /api/station-requirements/:id - Admin can delete any submission
+router.delete(
+  '/:id',
+  adminOnly,
+  validate(deleteSubmissionSchema),
+  deleteSubmissionHandler
 );
 
 // ============================================================
@@ -101,14 +150,6 @@ router.get(
   adminOrDr,
   validate(getSubmissionSchema),
   getSubmissionByIdHandler
-);
-
-// DELETE /api/station-requirements/:id - Admin can delete any submission
-router.delete(
-  '/:id',
-  adminOnly,
-  validate(deleteSubmissionSchema),
-  deleteSubmissionHandler
 );
 
 export default router;

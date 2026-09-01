@@ -1,7 +1,15 @@
 // Types for the Station Requirements Form
 // Based strictly on the official case categories document
-// CHANGES: removed all "quarter" fields (DR login only picks a station).
-// "quantity" on each item = how many of that file/register are needed.
+// CHANGES: 
+// - removed all "quarter" fields (DR login only picks a station)
+// - "quantity" on each item = how many of that file/register are needed
+// - Added draft functionality with status field
+// - Added email tracking fields
+// - Added station tracking for admin dashboard
+
+// ============================================
+// Core Types
+// ============================================
 
 export interface StationRequirementItem {
   division: string;
@@ -9,15 +17,75 @@ export interface StationRequirementItem {
   quantity: number; // how many needed, e.g. 1, 2, 3...
 }
 
+export type SubmissionStatus = 'draft' | 'submitted';
+export type ReviewStatus = 'pending' | 'approved' | 'needs_revision';
+
+// ============================================
+// Station Types (for admin tracking)
+// ============================================
+
+export type StationStatus = 
+  | 'not_started'     // No submission exists for this station
+  | 'in_progress'     // Has a draft but not submitted
+  | 'submitted'       // Has been submitted
+  | 'pending_review'  // Submitted but needs admin review
+  | 'approved'        // Approved by admin
+  | 'needs_revision'; // Needs changes
+
+export interface StationSubmissionStatus {
+  station: string;
+  status: StationStatus;
+  lastUpdatedAt?: string;
+  submittedAt?: string;
+  submittedBy?: string;
+  submitterName?: string;
+  draftExists: boolean;
+  hasSubmitted: boolean;
+  // Track who is working on it
+  assignedTo?: string;
+  assignedToName?: string;
+  // Progress tracking
+  progress: {
+    fileFoldersComplete: boolean;
+    registersComplete: boolean;
+    percentageComplete: number; // 0-100
+  };
+}
+
+export interface StationReport {
+  totalStations: number;
+  stationsByStatus: Record<StationStatus, number>;
+  stations: StationSubmissionStatus[];
+  summary: {
+    completed: number;      // Submitted and approved
+    pending: number;        // In draft or in_progress
+    notStarted: number;     // No submission
+    total: number;
+    completionRate: number; // Percentage
+  };
+}
+
 export interface StationRequirementSubmission {
   id?: string;
   station: string;
   fileFolders: StationRequirementItem[];
   registers: StationRequirementItem[];
-  submittedAt: string;
+  status: SubmissionStatus; // 'draft' or 'submitted'
+  submittedAt?: string; // Only present when status is 'submitted'
+  updatedAt: string; // Last updated timestamp (for drafts)
   submittedBy?: string; // User ID from auth
   submitterName?: string; // Full name of submitter
   submitterEmail?: string; // Email of submitter
+  // Email tracking
+  emailSent?: boolean;
+  emailSentAt?: string;
+  emailError?: string;
+  // Admin review fields
+  adminReviewed?: boolean;
+  adminReviewedAt?: string;
+  adminReviewedBy?: string;
+  adminNotes?: string;
+  reviewStatus?: ReviewStatus;
 }
 
 export interface StationRequirementSummary {
@@ -25,25 +93,77 @@ export interface StationRequirementSummary {
   station: string;
   fileFoldersTotal: number;
   registersTotal: number;
-  submittedAt: string;
+  status: SubmissionStatus;
+  submittedAt?: string;
+  updatedAt: string;
+  submitterName?: string;
+  reviewStatus?: ReviewStatus;
 }
 
-// Input types for API endpoints
+// ============================================
+// Draft-specific Types
+// ============================================
+
+export interface DraftSubmission extends StationRequirementSubmission {
+  status: 'draft';
+  submittedAt?: never; // Drafts don't have submittedAt
+}
+
+export interface SubmittedSubmission extends StationRequirementSubmission {
+  status: 'submitted';
+  submittedAt: string; // Required for submitted submissions
+}
+
+// ============================================
+// Input Types for API Endpoints
+// ============================================
+
 export interface CreateSubmissionInput {
   station: string;
   fileFolders: StationRequirementItem[];
   registers: StationRequirementItem[];
+  status?: SubmissionStatus; // Defaults to 'draft' if not provided
+}
+
+export interface UpdateSubmissionInput {
+  station?: string;
+  fileFolders?: StationRequirementItem[];
+  registers?: StationRequirementItem[];
+  status?: SubmissionStatus;
+  reviewStatus?: ReviewStatus;
+  adminNotes?: string;
+}
+
+export interface SubmitDraftInput {
+  id: string; // Draft ID to submit
+  sendEmail?: boolean; // Whether to send confirmation email
 }
 
 export interface GetSubmissionsQuery {
   station?: string;
+  status?: SubmissionStatus; // Filter by status
+  reviewStatus?: ReviewStatus;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: 'updatedAt' | 'submittedAt' | 'station';
+  sortOrder?: 'asc' | 'desc';
+  adminView?: boolean; // If true, show all submissions including admin fields
+}
+
+export interface GetStationReportQuery {
+  status?: StationStatus;
   fromDate?: string;
   toDate?: string;
   page?: number;
   limit?: number;
 }
 
-// Response types
+// ============================================
+// Response Types
+// ============================================
+
 export interface SubmissionResponse {
   submission: StationRequirementSubmission;
   message?: string;
@@ -54,6 +174,61 @@ export interface SubmissionsListResponse {
   total: number;
   page: number;
   limit: number;
+  hasMore: boolean;
+}
+
+export interface DraftListResponse {
+  drafts: StationRequirementSummary[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface StationReportResponse {
+  report: StationReport;
+  message?: string;
+}
+
+// ============================================
+// Email Tracking Types
+// ============================================
+
+export interface EmailStatus {
+  sent: boolean;
+  sentAt?: string;
+  error?: string;
+  recipient: string;
+  recipientName: string;
+}
+
+// ============================================
+// Admin Dashboard Types
+// ============================================
+
+export interface AdminDashboardStats {
+  totalStations: number;
+  submissionsToday: number;
+  pendingReviews: number;
+  draftsCount: number;
+  submittedCount: number;
+  notStartedCount: number;
+  completionRate: number;
+  recentActivity: Array<{
+    id: string;
+    station: string;
+    action: 'submitted' | 'approved' | 'updated' | 'created' | 'reviewed' | 'rejected';
+    timestamp: string;
+    user: string;
+    details?: string;
+  }>;
+  stationsByRegion?: Record<string, StationReport>;
+}
+
+export interface AdminReviewQueue {
+  pending: StationRequirementSubmission[];
+  approved: StationRequirementSubmission[];
+  needsRevision: StationRequirementSubmission[];
+  total: number;
 }
 
 // ============================================
@@ -285,4 +460,131 @@ export function getAllCases(): { category: CaseCategory; name: CaseName; code: s
   }
 
   return result;
+}
+
+// ============================================
+// Draft Helper Functions
+// ============================================
+
+export function isDraft(submission: StationRequirementSubmission): submission is DraftSubmission {
+  return submission.status === 'draft';
+}
+
+export function isSubmitted(submission: StationRequirementSubmission): submission is SubmittedSubmission {
+  return submission.status === 'submitted';
+}
+
+export function getSubmissionStatusText(status: SubmissionStatus): string {
+  return status === 'draft' ? 'Draft' : 'Submitted';
+}
+
+export function getSubmissionStatusColor(status: SubmissionStatus): string {
+  return status === 'draft' ? '#F59E0B' : '#10B981'; // Amber for draft, Green for submitted
+}
+
+export function calculateTotals(submission: StationRequirementSubmission): {
+  fileFoldersTotal: number;
+  registersTotal: number;
+  totalItems: number;
+} {
+  const fileFoldersTotal = submission.fileFolders.reduce((sum, item) => sum + item.quantity, 0);
+  const registersTotal = submission.registers.reduce((sum, item) => sum + item.quantity, 0);
+  return {
+    fileFoldersTotal,
+    registersTotal,
+    totalItems: fileFoldersTotal + registersTotal
+  };
+}
+
+// ============================================
+// Admin Dashboard Helper Functions
+// ============================================
+
+export function getStationStatusText(status: StationStatus): string {
+  const statusMap: Record<StationStatus, string> = {
+    'not_started': 'Not Started',
+    'in_progress': 'In Progress',
+    'submitted': 'Submitted',
+    'pending_review': 'Pending Review',
+    'approved': 'Approved',
+    'needs_revision': 'Needs Revision'
+  };
+  return statusMap[status];
+}
+
+export function getStationStatusColor(status: StationStatus): string {
+  const colorMap: Record<StationStatus, string> = {
+    'not_started': '#9CA3AF',      // Gray
+    'in_progress': '#F59E0B',      // Amber
+    'submitted': '#3B82F6',        // Blue
+    'pending_review': '#8B5CF6',   // Purple
+    'approved': '#10B981',         // Green
+    'needs_revision': '#EF4444'    // Red
+  };
+  return colorMap[status];
+}
+
+export function getStationProgress(submission?: StationRequirementSubmission): StationSubmissionStatus['progress'] {
+  if (!submission) {
+    return {
+      fileFoldersComplete: false,
+      registersComplete: false,
+      percentageComplete: 0
+    };
+  }
+
+  const hasFileFolders = submission.fileFolders.length > 0;
+  const hasRegisters = submission.registers.length > 0;
+  
+  return {
+    fileFoldersComplete: hasFileFolders,
+    registersComplete: hasRegisters,
+    percentageComplete: (hasFileFolders ? 50 : 0) + (hasRegisters ? 50 : 0)
+  };
+}
+
+export function determineStationStatus(
+  submission?: StationRequirementSubmission,
+  reviewStatus?: ReviewStatus
+): StationStatus {
+  if (!submission) {
+    return 'not_started';
+  }
+
+  if (submission.status === 'draft') {
+    return 'in_progress';
+  }
+
+  if (submission.status === 'submitted') {
+    if (reviewStatus === 'approved') {
+      return 'approved';
+    }
+    if (reviewStatus === 'needs_revision') {
+      return 'needs_revision';
+    }
+    if (reviewStatus === 'pending' || !reviewStatus) {
+      return 'pending_review';
+    }
+    return 'submitted';
+  }
+
+  return 'not_started';
+}
+
+export function getReviewStatusText(status: ReviewStatus): string {
+  const statusMap: Record<ReviewStatus, string> = {
+    'pending': 'Pending Review',
+    'approved': 'Approved',
+    'needs_revision': 'Needs Revision'
+  };
+  return statusMap[status];
+}
+
+export function getReviewStatusColor(status: ReviewStatus): string {
+  const colorMap: Record<ReviewStatus, string> = {
+    'pending': '#8B5CF6',    // Purple
+    'approved': '#10B981',   // Green
+    'needs_revision': '#EF4444' // Red
+  };
+  return colorMap[status];
 }
