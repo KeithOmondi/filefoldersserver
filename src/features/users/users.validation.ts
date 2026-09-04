@@ -34,13 +34,20 @@ export const getUsersQuerySchema = z.object({
   isActive: z.string().optional().transform((val) => val === 'true'),
 });
 
+// users.validation.ts
 export const userIdSchema = z.object({
-  id: z.string().uuid('Invalid user ID format'),
+  params: z.object({
+    id: z.string().uuid('Invalid user ID format'),
+  }),
 });
 
 export const toggleUserStatusSchema = z.object({
-  id: z.string().uuid('Invalid user ID format'),
-  isActive: z.boolean(),
+  params: z.object({
+    id: z.string().uuid('Invalid user ID format'),
+  }),
+  body: z.object({
+    isActive: z.boolean(),
+  }),
 });
 
 // Export types
