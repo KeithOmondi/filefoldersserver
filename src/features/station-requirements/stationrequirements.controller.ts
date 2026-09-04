@@ -1,6 +1,8 @@
 // controllers/stationrequirements.controller.ts
 import { Request, Response } from 'express';
 import * as stationRequirementsService from './stationrequirements.service';
+import PDFDocument from 'pdfkit';
+//import * as ExcelJS from 'exceljs';
 import {
   CreateSubmissionInput,
   UpdateSubmissionInput,
@@ -15,11 +17,14 @@ import {
   CaseCategory,
   RegisterCategory,
   calculateTotals,
+  //SubmissionStats,
+  DownloadReportQuery,
 } from './stationrequirements.types';
 import { catchAsync } from '../../utils/catchasync';
 import { sendResponse } from '../../utils/Apiresponse';
 import { AppError } from '../../utils/Apperror';
 import { sendSubmissionConfirmation } from '../../utils/sendMail';
+import { query } from '../../config/db';
 
 // Extend Express Request to include user and validated data
 interface AuthenticatedRequest extends Request {
@@ -679,13 +684,10 @@ export const getValidRegistersHandler = catchAsync(async (req: AuthenticatedRequ
   sendResponse(res, 200, { categories }, 'Valid registers retrieved successfully');
 });
 
-
-
-
-// controllers/stationrequirements.controller.ts
-
+// ============================================================
 // GET /api/station-requirements/my-submissions
 // DRs can view their own submissions (drafts and submitted)
+// ============================================================
 export const getMySubmissionsHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
   // ✅ USE VALIDATED QUERY from middleware
   const validatedQuery = req.validatedQuery || req.query;
@@ -718,10 +720,7 @@ export const getMySubmissionsHandler = catchAsync(async (req: AuthenticatedReque
     limit: validatedQuery.limit || 20,
     sortBy: validatedQuery.sortBy || 'updatedAt',
     sortOrder: validatedQuery.sortOrder || 'desc',
-    // DRs only see their own submissions
     adminView: false,
-    // Filter by submitter
-    //submittedBy: userId,
   };
 
   console.log('🔍 [Controller] getMySubmissions query:', query);
@@ -748,6 +747,431 @@ export const getMySubmissionsHandler = catchAsync(async (req: AuthenticatedReque
 });
 
 // ============================================================
+// GET /api/station-requirements/submission-stats
+// Get submission statistics (submitted, draft only, not started)
+// ============================================================
+export const getSubmissionStatsHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  console.log('🔍 [Controller] getSubmissionStats');
+
+  // Get all stations from users table
+  const allStationsResult = await query(`
+    SELECT DISTINCT station 
+    FROM users 
+    WHERE role = 'dr' AND is_active = true
+    ORDER BY station ASC
+  `);
+
+  const allStations: string[] = allStationsResult.rows.map((row: any) => String(row.station)).filter(Boolean);
+
+  if (allStations.length === 0) {
+    sendResponse(res, 200, {
+      totalStations: 0,
+      submitted: 0,
+      notSubmitted: 0,
+      draftOnly: 0,
+      notStarted: 0,
+    }, 'No stations found');
+    return;
+  }
+
+  // Get date filters if provided
+  const validatedQuery = req.validatedQuery || req.query;
+  const fromDate = validatedQuery.fromDate as string | undefined;
+  const toDate = validatedQuery.toDate as string | undefined;
+
+  const stats = await stationRequirementsService.getSubmissionStats(
+    allStations,
+    fromDate,
+    toDate
+  );
+
+  console.log('✅ [Controller] Submission stats retrieved:', stats);
+
+  sendResponse(res, 200, stats, 'Submission statistics retrieved successfully');
+});
+
+
+
+// ============================================================
+// GET /api/station-requirements/download-report
+// Download consolidated report (PDF or Word)
+// ============================================================
+export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
+  // Only admins can download reports
+  if (req.user?.role !== 'admin') {
+    throw new AppError('Only administrators can download reports', 403);
+  }
+
+  console.log('🔍 [Controller] downloadReport');
+
+  const validatedQuery = req.validatedQuery || req.query;
+  const format = (validatedQuery.format || 'pdf') as 'pdf' | 'docx';
+  
+  const queryParams: DownloadReportQuery = {
+    format: format,
+    fromDate: validatedQuery.fromDate as string | undefined,
+    toDate: validatedQuery.toDate as string | undefined,
+    status: validatedQuery.status as string | undefined,
+  };
+
+  // Generate report data using the service
+  const { rows, summary } = await stationRequirementsService.generateReportData(queryParams);
+
+  if (rows.length === 0) {
+    throw new AppError('No data available for report', 404);
+  }
+
+  // Build filter info for display
+  let filterInfo = 'All Stations';
+  if (queryParams.fromDate && queryParams.toDate) {
+    filterInfo = `From: ${queryParams.fromDate} To: ${queryParams.toDate}`;
+  } else if (queryParams.fromDate) {
+    filterInfo = `From: ${queryParams.fromDate}`;
+  } else if (queryParams.toDate) {
+    filterInfo = `To: ${queryParams.toDate}`;
+  }
+  if (queryParams.status) {
+    filterInfo += ` | Status: ${queryParams.status}`;
+  }
+
+  // Generate PDF
+  if (format === 'pdf') {
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50,
+      info: {
+        Title: 'Station Requirements Report',
+        Author: 'Court System',
+        Subject: 'Station Requirements Summary',
+        Keywords: 'station, requirements, report',
+        CreationDate: new Date(),
+      },
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=station-requirements-report-${new Date().toISOString().split('T')[0]}.pdf`);
+
+    doc.pipe(res);
+
+    // Header
+    doc.fontSize(18).font('Helvetica-Bold').text('STATION REQUIREMENTS REPORT', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(10).font('Helvetica').text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
+    doc.moveDown(0.5);
+
+    // Filter info
+    doc.fontSize(10).text(`Filter: ${filterInfo}`, { align: 'center' });
+    doc.moveDown();
+
+    // Summary Section
+    doc.fontSize(14).font('Helvetica-Bold').text('SUMMARY', { underline: true });
+    doc.moveDown(0.5);
+
+    const summaryData: Array<[string, string | number]> = [
+      ['Metric', 'Value'],
+      ['Total Stations', summary.totalStations],
+      ['Submitted', summary.submitted],
+      ['Pending Review', summary.pendingReview],
+      ['Approved', summary.approved],
+      ['Needs Revision', summary.needsRevision],
+      ['Draft Only', summary.draftOnly],
+      ['Not Started', summary.notStarted],
+      ['Total File Folders', summary.totalFileFolders],
+      ['Total Registers', summary.totalRegisters],
+      ['Completion Rate', `${summary.completionRate}%`],
+    ];
+
+    let y = doc.y;
+    summaryData.forEach((row, index) => {
+      const x = index === 0 ? 50 : 200;
+      doc.font(index === 0 ? 'Helvetica-Bold' : 'Helvetica')
+         .fontSize(index === 0 ? 10 : 9)
+         .text(row[0], x, y, { width: 150 });
+      // Fix: Ensure the value is converted to string
+      const value = row[1] !== undefined && row[1] !== null ? String(row[1]) : '';
+      doc.text(value, x + 150, y, { width: 100 });
+      y += 20;
+    });
+
+    doc.moveDown(2);
+
+    // Detailed Report Table
+    doc.fontSize(14).font('Helvetica-Bold').text('DETAILED REPORT', { underline: true });
+    doc.moveDown(0.5);
+
+    // Table headers
+    const tableHeaders = ['#', 'Station', 'DR', 'Status', 'Folders', 'Registers', 'Total'];
+    const headerY = doc.y;
+    doc.fontSize(8).font('Helvetica-Bold');
+
+    let tableX = 50;
+    const colWidths = [25, 80, 80, 70, 45, 45, 45];
+    
+    tableHeaders.forEach((header, index) => {
+      doc.text(header, tableX, headerY, { width: colWidths[index], align: 'center' });
+      tableX += colWidths[index];
+    });
+
+    // Draw header line
+    doc.moveTo(50, headerY + 15).lineTo(50 + colWidths.reduce((a, b) => a + b, 0), headerY + 15).stroke();
+    doc.moveDown();
+
+    // Table rows
+    let rowY = doc.y;
+    let rowCount = 0;
+
+    rows.forEach((row, rowIndex) => {
+      // Check if we need a new page
+      if (rowY > 700) {
+        doc.addPage();
+        rowY = 50;
+      }
+
+      const status = row['Submission Status'] || 'Not Started';
+      let statusColor = 'black';
+      if (status === 'Approved') statusColor = 'green';
+      else if (status === 'Pending Review') statusColor = 'orange';
+      else if (status === 'Needs Revision') statusColor = 'red';
+      else if (status === 'Draft') statusColor = 'blue';
+      else if (status === 'Not Started') statusColor = 'gray';
+
+      const rowData = [
+        (rowIndex + 1).toString(),
+        row['Station'] || '',
+        row['Assigned DR'] || '',
+        status,
+        String(row['File Folders'] || 0),
+        String(row['Registers'] || 0),
+        String(row['Total Items'] || 0),
+      ];
+
+      doc.fontSize(7).font('Helvetica');
+      let xPos = 50;
+      rowData.forEach((data, colIndex) => {
+        if (colIndex === 3) {
+          doc.fillColor(statusColor).text(data, xPos, rowY, { width: colWidths[colIndex], align: 'center' });
+          doc.fillColor('black');
+        } else {
+          doc.text(data, xPos, rowY, { width: colWidths[colIndex], align: 'center' });
+        }
+        xPos += colWidths[colIndex];
+      });
+
+      rowY += 20;
+      rowCount++;
+
+      // Draw row line
+      if (rowCount % 10 === 0) {
+        doc.moveTo(50, rowY).lineTo(50 + colWidths.reduce((a, b) => a + b, 0), rowY).stroke();
+      }
+    });
+
+    // Zero Submissions Section
+    const zeroSubmissions = rows.filter(row => 
+      row['Submission Status'] === 'Not Started' || row['Submission Status'] === 'Draft'
+    );
+
+    if (zeroSubmissions.length > 0) {
+      doc.addPage();
+      doc.fontSize(14).font('Helvetica-Bold').text('ZERO SUBMISSIONS REPORT', { underline: true });
+      doc.moveDown(0.5);
+      doc.fontSize(10).font('Helvetica').text(`Total stations with no submission or draft only: ${zeroSubmissions.length}`);
+      doc.moveDown();
+
+      // Table for zero submissions
+      const zeroHeaders = ['#', 'Station', 'DR', 'Status'];
+      const zeroColWidths = [30, 120, 120, 100];
+      let zeroY = doc.y;
+
+      doc.fontSize(8).font('Helvetica-Bold');
+      let zeroX = 50;
+      zeroHeaders.forEach((header, index) => {
+        doc.text(header, zeroX, zeroY, { width: zeroColWidths[index], align: 'center' });
+        zeroX += zeroColWidths[index];
+      });
+      doc.moveTo(50, zeroY + 15).lineTo(50 + zeroColWidths.reduce((a, b) => a + b, 0), zeroY + 15).stroke();
+      doc.moveDown();
+
+      zeroY = doc.y;
+      zeroSubmissions.forEach((row, index) => {
+        if (zeroY > 700) {
+          doc.addPage();
+          zeroY = 50;
+        }
+
+        const rowData = [
+          (index + 1).toString(),
+          row['Station'] || '',
+          row['Assigned DR'] || '',
+          row['Submission Status'] || 'Not Started',
+        ];
+
+        doc.fontSize(7).font('Helvetica');
+        let xPos = 50;
+        rowData.forEach((data, colIndex) => {
+          doc.text(data, xPos, zeroY, { width: zeroColWidths[colIndex], align: 'center' });
+          xPos += zeroColWidths[colIndex];
+        });
+        zeroY += 20;
+      });
+    }
+
+    doc.end();
+    return;
+  }
+
+  // Generate Word (DOCX) - using simple HTML format that Word can read
+  if (format === 'docx') {
+    let html = `
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Station Requirements Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; }
+          h1 { text-align: center; color: #1a365d; }
+          .subtitle { text-align: center; color: #4a5568; margin-bottom: 20px; }
+          h2 { color: #2d3748; border-bottom: 2px solid #4299e1; padding-bottom: 5px; margin-top: 30px; }
+          table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; }
+          th { background-color: #2b6cb0; color: white; padding: 10px; border: 1px solid #2b6cb0; text-align: left; }
+          td { padding: 8px; border: 1px solid #e2e8f0; }
+          tr:nth-child(even) { background-color: #f7fafc; }
+          .status-approved { color: #38a169; font-weight: bold; }
+          .status-pending { color: #d69e2e; font-weight: bold; }
+          .status-revision { color: #e53e3e; font-weight: bold; }
+          .status-draft { color: #3182ce; font-weight: bold; }
+          .status-notstarted { color: #718096; font-weight: bold; }
+          .status-submitted { color: #2b6cb0; font-weight: bold; }
+          .summary-table { width: 50%; margin: 20px auto; }
+          .summary-table td { padding: 8px 15px; }
+          .summary-table tr:nth-child(even) { background-color: #edf2f7; }
+          .summary-table .label { font-weight: bold; }
+          .zero-section { margin-top: 30px; }
+          .page-break { page-break-after: always; }
+          .footer { text-align: center; color: #718096; font-size: 10px; margin-top: 30px; }
+    </style>
+  </head>
+  <body>
+    <h1>STATION REQUIREMENTS REPORT</h1>
+    <p class="subtitle">Generated: ${new Date().toLocaleString()}</p>
+    <p class="subtitle">Filter: ${filterInfo}</p>
+
+    <h2>SUMMARY</h2>
+    <table class="summary-table">
+      <tr><td class="label">Total Stations</td><td>${summary.totalStations}</td></tr>
+      <tr><td class="label">Submitted</td><td>${summary.submitted}</td></tr>
+      <tr><td class="label">Pending Review</td><td>${summary.pendingReview}</td></tr>
+      <tr><td class="label">Approved</td><td>${summary.approved}</td></tr>
+      <tr><td class="label">Needs Revision</td><td>${summary.needsRevision}</td></tr>
+      <tr><td class="label">Draft Only</td><td>${summary.draftOnly}</td></tr>
+      <tr><td class="label">Not Started</td><td>${summary.notStarted}</td></tr>
+      <tr><td class="label">Total File Folders</td><td>${summary.totalFileFolders}</td></tr>
+      <tr><td class="label">Total Registers</td><td>${summary.totalRegisters}</td></tr>
+      <tr><td class="label">Completion Rate</td><td>${summary.completionRate}%</td></tr>
+    </table>
+
+    <h2>DETAILED REPORT</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Station</th>
+          <th>Assigned DR</th>
+          <th>Submission Status</th>
+          <th>File Folders</th>
+          <th>Registers</th>
+          <th>Total Items</th>
+        </tr>
+      </thead>
+      <tbody>
+    `;
+
+    rows.forEach((row, index) => {
+      const status = row['Submission Status'] || 'Not Started';
+      let statusClass = 'status-notstarted';
+      if (status === 'Approved') statusClass = 'status-approved';
+      else if (status === 'Pending Review') statusClass = 'status-pending';
+      else if (status === 'Needs Revision') statusClass = 'status-revision';
+      else if (status === 'Draft') statusClass = 'status-draft';
+      else if (status === 'Submitted') statusClass = 'status-submitted';
+
+      html += `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${row['Station'] || ''}</td>
+          <td>${row['Assigned DR'] || ''}</td>
+          <td class="${statusClass}">${status}</td>
+          <td>${row['File Folders'] || 0}</td>
+          <td>${row['Registers'] || 0}</td>
+          <td>${row['Total Items'] || 0}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+      </tbody>
+    </table>
+    `;
+
+    // Zero Submissions Section
+    const zeroSubmissions = rows.filter(row => 
+      row['Submission Status'] === 'Not Started' || row['Submission Status'] === 'Draft'
+    );
+
+    if (zeroSubmissions.length > 0) {
+      html += `
+        <div class="page-break"></div>
+        <h2>ZERO SUBMISSIONS</h2>
+        <p>Total stations with no submission or draft only: ${zeroSubmissions.length}</p>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Station</th>
+              <th>Assigned DR</th>
+              <th>Submission Status</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      zeroSubmissions.forEach((row, index) => {
+        const status = row['Submission Status'] || 'Not Started';
+        let statusClass = 'status-notstarted';
+        if (status === 'Draft') statusClass = 'status-draft';
+
+        html += `
+          <tr>
+            <td>${index + 1}</td>
+            <td>${row['Station'] || ''}</td>
+            <td>${row['Assigned DR'] || ''}</td>
+            <td class="${statusClass}">${status}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+          </tbody>
+        </table>
+      `;
+    }
+
+    html += `
+    <p class="footer">Generated by Court System - ${new Date().toLocaleString()}</p>
+  </body>
+  </html>
+  `;
+
+    res.setHeader('Content-Type', 'application/msword');
+    res.setHeader('Content-Disposition', `attachment; filename=station-requirements-report-${new Date().toISOString().split('T')[0]}.doc`);
+    res.send(html);
+    return;
+  }
+
+  throw new AppError('Unsupported format. Please use pdf or docx.', 400);
+});
+
+// ============================================================
 // EXPORT
 // ============================================================
 export default {
@@ -768,4 +1192,7 @@ export default {
   getStationReportHandler,
   getAdminDashboardHandler,
   getReviewQueueHandler,
+  getMySubmissionsHandler,
+  getSubmissionStatsHandler,
+  downloadReportHandler,
 };

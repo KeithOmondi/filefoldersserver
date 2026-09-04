@@ -7,6 +7,7 @@
 // - Added email tracking fields
 // - Added station tracking for admin dashboard
 // - Added comprehensive register categories for all case types
+// - Added report download types (PDF and DOCX)
 
 // ============================================
 // Core Types
@@ -32,8 +33,6 @@ export type StationStatus =
   | 'pending_review'  // Submitted but needs admin review
   | 'approved'        // Approved by admin
   | 'needs_revision'; // Needs changes
-
-// stationrequirements.types.ts
 
 export interface StationSubmissionStatus {
   station: string;
@@ -160,6 +159,51 @@ export interface GetStationReportQuery {
 }
 
 // ============================================
+// Report Download Types
+// ============================================
+
+export type ReportFormat = 'pdf' | 'docx';
+
+export interface DownloadReportQuery {
+  format?: ReportFormat;
+  fromDate?: string;
+  toDate?: string;
+  status?: string;
+}
+
+export interface ReportRow {
+  'Station': string;
+  'Assigned DR': string;
+  'DR Email': string;
+  'Submission Status': string;
+  'Review Status': string;
+  'File Folders': number;
+  'Registers': number;
+  'Total Items': number;
+  'Submitted At': string;
+  'Last Updated': string;
+  'Admin Notes': string;
+}
+
+export interface ReportSummary {
+  totalStations: number;
+  submitted: number;
+  draftOnly: number;
+  notStarted: number;
+  pendingReview: number;
+  approved: number;
+  needsRevision: number;
+  totalFileFolders: number;
+  totalRegisters: number;
+  completionRate: number;
+}
+
+export interface ReportData {
+  rows: ReportRow[];
+  summary: ReportSummary;
+}
+
+// ============================================
 // Response Types
 // ============================================
 
@@ -228,6 +272,18 @@ export interface AdminReviewQueue {
   approved: StationRequirementSubmission[];
   needsRevision: StationRequirementSubmission[];
   total: number;
+}
+
+// ============================================
+// Submission Statistics Types
+// ============================================
+
+export interface SubmissionStats {
+  totalStations: number;
+  submitted: number;
+  notSubmitted: number;
+  draftOnly: number;
+  notStarted: number;
 }
 
 // ============================================
@@ -372,7 +428,7 @@ export const ADDITIONAL_REGISTERS = [
   "Exhibit Register",
   "Court Assistants Exhibit Register",
   "Certified Urgent Applications Tracking Register",
-  "Injunction Register", // ✅ Added here
+  "Injunction Register",
   "Tracking Register for High Court Appeal Pending Due to Lack of Lower Court Record",
   "Tracking Registers for Appeals to Court of Appeal"
 ] as const;
@@ -466,7 +522,7 @@ export const CASE_COLORS = {
   "Anti-Corruption & Economic Crimes_Suit": "Maroon",
   "Anti-Corruption & Economic Crimes_Revision": "Neon Green",
   "Anti-Corruption & Economic Crimes_Miscellaneous": "Orange",
-  "Anti-Corruption & Economic Crimes_Petitions": "Red",
+  "Anti-Corruption & Economic Crimes_Petitions": "Lime Green",
 
   // Commercial & Tax
   "Commercial & Tax_Commercial Civil Matters": "Light Purple",
@@ -719,4 +775,76 @@ export function getReviewStatusColor(status: ReviewStatus): string {
     'needs_revision': '#EF4444'
   };
   return colorMap[status];
+}
+
+// ============================================
+// Submission Statistics Helper
+// ============================================
+
+export function getSubmissionStats(
+  allStations: string[],
+  submissions: StationRequirementSubmission[]
+): SubmissionStats {
+  // Get latest submission per station
+  const latestByStation = new Map<string, StationRequirementSubmission>();
+  
+  for (const sub of submissions) {
+    const existing = latestByStation.get(sub.station);
+    if (!existing || new Date(sub.updatedAt) > new Date(existing.updatedAt)) {
+      latestByStation.set(sub.station, sub);
+    }
+  }
+
+  let submitted = 0;
+  let draftOnly = 0;
+  let notStarted = 0;
+
+  for (const station of allStations) {
+    const submission = latestByStation.get(station);
+    
+    if (!submission) {
+      notStarted++;
+    } else if (submission.status === 'submitted') {
+      submitted++;
+    } else if (submission.status === 'draft') {
+      draftOnly++;
+    }
+  }
+
+  return {
+    totalStations: allStations.length,
+    submitted,
+    notSubmitted: draftOnly + notStarted,
+    draftOnly,
+    notStarted,
+  };
+}
+
+// ============================================
+// Report Helper Functions
+// ============================================
+
+export function generateReportSummary(
+  totalStations: number,
+  statusCounts: Record<string, number>
+): ReportSummary {
+  const submitted = statusCounts['submitted'] || 0;
+  const pendingReview = statusCounts['pending_review'] || 0;
+  const approved = statusCounts['approved'] || 0;
+  const needsRevision = statusCounts['needs_revision'] || 0;
+  const draftOnly = statusCounts['in_progress'] || 0;
+  const notStarted = statusCounts['not_started'] || 0;
+
+  return {
+    totalStations,
+    submitted,
+    draftOnly,
+    notStarted,
+    pendingReview,
+    approved,
+    needsRevision,
+    totalFileFolders: 0,
+    totalRegisters: 0,
+    completionRate: totalStations > 0 ? Math.round((approved / totalStations) * 100) : 0,
+  };
 }

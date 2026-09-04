@@ -22,6 +22,10 @@ import {
   CaseCategory,
   RegisterCategory,
   CaseName,
+  SubmissionStats,
+  DownloadReportQuery,
+  ReportRow,
+  ReportSummary,
 } from './stationrequirements.types';
 
 // Type for database row
@@ -406,8 +410,6 @@ const calculateProgress = (submission?: StationRequirementSubmission) => {
   };
 };
 
-
-
 // ============================================================
 // CREATE SUBMISSION (with draft support)
 // ============================================================
@@ -476,7 +478,7 @@ export const createSubmission = async (
     fileFoldersCount: cleanFileFolders.length,
     registersCount: cleanRegisters.length,
     status,
-    userId, // ✅ Log userId to verify it's being passed
+    userId,
     userEmail,
     userName,
   });
@@ -496,7 +498,7 @@ export const createSubmission = async (
         JSON.stringify(cleanFileFolders),
         JSON.stringify(cleanRegisters),
         status,
-        userId, // ✅ userId should always be set here
+        userId,
         userEmail || null,
         userName || null,
       ]
@@ -515,7 +517,7 @@ export const createSubmission = async (
         JSON.stringify(cleanFileFolders),
         JSON.stringify(cleanRegisters),
         status,
-        userId, // ✅ userId should always be set here too
+        userId,
         userEmail || null,
         userName || null,
       ]
@@ -530,7 +532,7 @@ export const createSubmission = async (
     id: result.rows[0].id,
     station: result.rows[0].station,
     status: result.rows[0].status,
-    submittedBy: result.rows[0].submitted_by, // ✅ Log to verify it's set
+    submittedBy: result.rows[0].submitted_by,
     submittedAt: result.rows[0].submitted_at,
   });
 
@@ -911,7 +913,6 @@ export const deleteSubmission = async (id: string): Promise<void> => {
   }
 };
 
-
 // ============================================================
 // GET ADMIN DASHBOARD STATS
 // ============================================================
@@ -1161,10 +1162,6 @@ export const updateEmailStatus = async (
   );
 };
 
-
-// services/stationrequirements.service.ts
-
-// Add this new function
 // ============================================================
 // GET MY SUBMISSIONS (DRs only - sees own drafts and submitted)
 // ============================================================
@@ -1226,8 +1223,6 @@ export const getMySubmissions = async (
     paramIndex++;
   }
 
-  // DRs see both drafts and submitted - no status filter unless specified
-
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const offset = (validPage - 1) * validLimit;
 
@@ -1275,10 +1270,9 @@ export const getMySubmissions = async (
   return { submissions, total };
 };
 
-
-// services/stationrequirements.service.ts
-
-// Add this new function to get station submission status from users table
+// ============================================================
+// GET STATION SUBMISSION STATUS FROM USERS
+// ============================================================
 export const getStationSubmissionStatusFromUsers = async (): Promise<{
   stations: Array<{
     station: string;
@@ -1444,7 +1438,9 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
   };
 };
 
-// Update the getStationReport function to use the new data source
+// ============================================================
+// GET STATION REPORT
+// ============================================================
 export const getStationReport = async (
   queryParams: GetStationReportQuery
 ): Promise<StationReport> => {
@@ -1456,7 +1452,7 @@ export const getStationReport = async (
     limit = 50,
   } = queryParams;
 
-  // Use the new function that pulls from users table
+  // Use the function that pulls from users table
   const { stations: allStations, summary } = await getStationSubmissionStatusFromUsers();
 
   // Apply filters
@@ -1520,4 +1516,278 @@ export const getStationReport = async (
         : 0,
     },
   };
+};
+
+// ============================================================
+// GET SUBMISSION STATS
+// ============================================================
+export const getSubmissionStats = async (
+  allStations: string[],
+  fromDate?: string,
+  toDate?: string
+): Promise<SubmissionStats> => {
+  // Build conditions
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (fromDate) {
+    conditions.push(`submitted_at >= $${paramIndex}`);
+    values.push(fromDate);
+    paramIndex++;
+  }
+
+  if (toDate) {
+    conditions.push(`submitted_at <= $${paramIndex}`);
+    values.push(toDate);
+    paramIndex++;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Get all submissions within date range
+  const result = await query(
+    `SELECT 
+       station,
+       status,
+       updated_at,
+       submitted_at
+     FROM station_requirements
+     ${whereClause}
+     ORDER BY updated_at DESC`,
+    values
+  );
+
+  // Group by station, keep latest submission
+  const latestByStation = new Map<string, { status: SubmissionStatus; updatedAt: string }>();
+
+  for (const row of result.rows) {
+    const station = String(row.station);
+    const status = String(row.status) as SubmissionStatus;
+    const updatedAt = String(row.updated_at);
+
+    const existing = latestByStation.get(station);
+    if (!existing || new Date(updatedAt) > new Date(existing.updatedAt)) {
+      latestByStation.set(station, { status, updatedAt });
+    }
+  }
+
+  let submitted = 0;
+  let draftOnly = 0;
+  let notStarted = 0;
+
+  for (const station of allStations) {
+    const submission = latestByStation.get(station);
+
+    if (!submission) {
+      notStarted++;
+    } else if (submission.status === 'submitted') {
+      submitted++;
+    } else if (submission.status === 'draft') {
+      draftOnly++;
+    }
+  }
+
+  return {
+    totalStations: allStations.length,
+    submitted,
+    notSubmitted: draftOnly + notStarted,
+    draftOnly,
+    notStarted,
+  };
+};
+
+// ============================================================
+// GENERATE REPORT DATA
+// ============================================================
+export const generateReportData = async (
+  queryParams: DownloadReportQuery
+): Promise<{ rows: ReportRow[]; summary: ReportSummary }> => {
+  const { fromDate, toDate, status } = queryParams;
+
+  // Get all DR stations
+  const usersResult = await query(`
+    SELECT 
+      id,
+      full_name,
+      email,
+      station,
+      role
+    FROM users 
+    WHERE role = 'dr' AND is_active = true
+    ORDER BY station ASC
+  `);
+
+  if (!usersResult.rows || usersResult.rows.length === 0) {
+    return {
+      rows: [],
+      summary: {
+        totalStations: 0,
+        submitted: 0,
+        draftOnly: 0,
+        notStarted: 0,
+        pendingReview: 0,
+        approved: 0,
+        needsRevision: 0,
+        totalFileFolders: 0,
+        totalRegisters: 0,
+        completionRate: 0,
+      },
+    };
+  }
+
+  // Build date conditions for submissions query
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (fromDate) {
+    conditions.push(`sr.submitted_at >= $${paramIndex}`);
+    values.push(fromDate);
+    paramIndex++;
+  }
+
+  if (toDate) {
+    conditions.push(`sr.submitted_at <= $${paramIndex}`);
+    values.push(toDate);
+    paramIndex++;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Get all submissions
+  const submissionsResult = await query(`
+    SELECT 
+      sr.id,
+      sr.station,
+      sr.status,
+      sr.submitted_at,
+      sr.updated_at,
+      sr.review_status,
+      sr.submitted_by,
+      sr.submitter_name,
+      sr.submitter_email,
+      sr.admin_notes,
+      sr.file_folders,
+      sr.registers,
+      COALESCE(
+        (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(sr.file_folders) AS value),
+        0
+      ) as file_folders_total,
+      COALESCE(
+        (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(sr.registers) AS value),
+        0
+      ) as registers_total
+    FROM station_requirements sr
+    ${whereClause}
+    ORDER BY sr.station ASC, sr.updated_at DESC
+  `, values);
+
+  // Create a map of station -> latest submission
+  const stationSubmissionMap = new Map<string, any>();
+  
+  for (const row of submissionsResult.rows) {
+    const station = String(row.station);
+    if (!stationSubmissionMap.has(station)) {
+      stationSubmissionMap.set(station, row);
+    }
+  }
+
+  // Build report data
+  const rows: ReportRow[] = [];
+  const summary = {
+    totalStations: 0,
+    submitted: 0,
+    draftOnly: 0,
+    notStarted: 0,
+    pendingReview: 0,
+    approved: 0,
+    needsRevision: 0,
+    totalFileFolders: 0,
+    totalRegisters: 0,
+    completionRate: 0,
+  };
+
+  for (const userRow of usersResult.rows) {
+    const station = String(userRow.station);
+    const assignedDR = String(userRow.full_name);
+    const assignedDREmail = String(userRow.email);
+    const submission = stationSubmissionMap.get(station);
+
+    summary.totalStations++;
+
+    let row: ReportRow = {
+      'Station': station,
+      'Assigned DR': assignedDR,
+      'DR Email': assignedDREmail,
+      'Submission Status': 'Not Started',
+      'Review Status': 'N/A',
+      'File Folders': 0,
+      'Registers': 0,
+      'Total Items': 0,
+      'Submitted At': 'N/A',
+      'Last Updated': 'N/A',
+      'Admin Notes': '',
+    };
+
+    if (submission) {
+      const subStatus = String(submission.status);
+      const reviewStatus = submission.review_status ? String(submission.review_status) : null;
+      const fileFoldersTotal = Number(submission.file_folders_total) || 0;
+      const registersTotal = Number(submission.registers_total) || 0;
+      const totalItems = fileFoldersTotal + registersTotal;
+
+      let statusText = 'Draft';
+      if (subStatus === 'submitted') {
+        if (reviewStatus === 'approved') {
+          statusText = 'Approved';
+          summary.approved++;
+        } else if (reviewStatus === 'needs_revision') {
+          statusText = 'Needs Revision';
+          summary.needsRevision++;
+        } else if (reviewStatus === 'pending' || !reviewStatus) {
+          statusText = 'Pending Review';
+          summary.pendingReview++;
+        } else {
+          statusText = 'Submitted';
+          summary.submitted++;
+        }
+      } else {
+        statusText = 'Draft';
+        summary.draftOnly++;
+      }
+
+      row = {
+        'Station': station,
+        'Assigned DR': assignedDR,
+        'DR Email': assignedDREmail,
+        'Submission Status': statusText,
+        'Review Status': reviewStatus || 'N/A',
+        'File Folders': fileFoldersTotal,
+        'Registers': registersTotal,
+        'Total Items': totalItems,
+        'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'N/A',
+        'Last Updated': submission.updated_at ? new Date(submission.updated_at).toLocaleDateString() : 'N/A',
+        'Admin Notes': submission.admin_notes || '',
+      };
+
+      summary.totalFileFolders += fileFoldersTotal;
+      summary.totalRegisters += registersTotal;
+    } else {
+      summary.notStarted++;
+    }
+
+    // Apply status filter if provided
+    if (status && row['Submission Status'] !== status) {
+      continue;
+    }
+
+    rows.push(row);
+  }
+
+  summary.completionRate = summary.totalStations > 0 
+    ? Math.round((summary.approved / summary.totalStations) * 100) 
+    : 0;
+
+  return { rows, summary };
 };

@@ -9,7 +9,8 @@ import {
   RegisterCategory,
   SubmissionStatus, 
   StationStatus,
-  ReviewStatus 
+  ReviewStatus,
+  SubmissionStats
 } from './stationrequirements.types';
 
 // ============================================================
@@ -327,6 +328,26 @@ export const adminReviewSchema = z.object({
 });
 
 // ============================================================
+// Get submission stats schema
+// ============================================================
+export const getSubmissionStatsSchema = z.object({
+  query: z.object({
+    fromDate: z.string().optional(),
+    toDate: z.string().optional(),
+  }),
+});
+
+// ============================================================
+// Download report schema - FIXED: Flattened for query validation
+// ============================================================
+export const downloadReportSchema = z.object({
+  format: z.enum(['pdf', 'docx']).optional().default('pdf'),
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  status: z.string().optional(),
+});
+
+// ============================================================
 // Export types
 // ============================================================
 export type CreateSubmissionInput = z.infer<typeof createSubmissionSchema>;
@@ -341,6 +362,8 @@ export type DeleteSubmissionParams = z.infer<typeof deleteSubmissionSchema>['par
 export type BulkActionInput = z.infer<typeof bulkActionSchema>['body'];
 export type AdminReviewInput = z.infer<typeof adminReviewSchema>['body'];
 export type AdminReviewParams = z.infer<typeof adminReviewSchema>['params'];
+export type GetSubmissionStatsQuery = z.infer<typeof getSubmissionStatsSchema>['query'];
+export type DownloadReportQuery = z.infer<typeof downloadReportSchema>;
 
 // ============================================================
 // Helper function to get all valid categories (for frontend use)
@@ -489,6 +512,48 @@ export const isStationSubmissionComplete = (
     .some(item => item.quantity > 0);
   
   return (hasFileFolders || hasRegisters) && hasQuantities;
+};
+
+// ============================================================
+// Helper: Calculate submission statistics
+// ============================================================
+export const calculateSubmissionStats = (
+  allStations: string[],
+  submissions: Array<{ station: string; status: SubmissionStatus; updatedAt: string }>
+): SubmissionStats => {
+  // Get latest submission per station
+  const latestByStation = new Map<string, { status: SubmissionStatus; updatedAt: string }>();
+  
+  for (const sub of submissions) {
+    const existing = latestByStation.get(sub.station);
+    if (!existing || new Date(sub.updatedAt) > new Date(existing.updatedAt)) {
+      latestByStation.set(sub.station, { status: sub.status, updatedAt: sub.updatedAt });
+    }
+  }
+
+  let submitted = 0;
+  let draftOnly = 0;
+  let notStarted = 0;
+
+  for (const station of allStations) {
+    const submission = latestByStation.get(station);
+    
+    if (!submission) {
+      notStarted++;
+    } else if (submission.status === 'submitted') {
+      submitted++;
+    } else if (submission.status === 'draft') {
+      draftOnly++;
+    }
+  }
+
+  return {
+    totalStations: allStations.length,
+    submitted,
+    notSubmitted: draftOnly + notStarted,
+    draftOnly,
+    notStarted,
+  };
 };
 
 // ============================================================

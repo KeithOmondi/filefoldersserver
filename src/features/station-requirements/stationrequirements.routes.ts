@@ -19,7 +19,9 @@ import {
   getStationReportHandler,
   getAdminDashboardHandler,
   getReviewQueueHandler,
-  getMySubmissionsHandler, // Add this
+  getMySubmissionsHandler,
+  getSubmissionStatsHandler,
+  downloadReportHandler,
 } from './stationrequirements.controller';
 import { 
   protect, 
@@ -36,6 +38,8 @@ import {
   submitDraftSchema,
   adminReviewSchema,
   getStationReportSchema,
+  getSubmissionStatsSchema,
+  downloadReportSchema,
 } from './stationrequirements.validation';
 import { validate } from '../../middleware/validate.middleware';
 
@@ -139,6 +143,22 @@ router.get(
   '/review-queue',
   adminOnly,
   getReviewQueueHandler
+);
+
+// GET /api/station-requirements/submission-stats - Admin can view submission statistics
+router.get(
+  '/submission-stats',
+  adminOnly,
+  validate(getSubmissionStatsSchema),
+  getSubmissionStatsHandler
+);
+
+// GET /api/station-requirements/download-report - Admin can download consolidated report (PDF or Word)
+router.get(
+  '/download-report',
+  adminOnly,
+  validate(downloadReportSchema),
+  downloadReportHandler
 );
 
 // ============================================================
