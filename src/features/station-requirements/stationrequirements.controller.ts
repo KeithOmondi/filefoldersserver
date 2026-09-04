@@ -2,7 +2,6 @@
 import { Request, Response } from 'express';
 import * as stationRequirementsService from './stationrequirements.service';
 import PDFDocument from 'pdfkit';
-//import * as ExcelJS from 'exceljs';
 import {
   CreateSubmissionInput,
   UpdateSubmissionInput,
@@ -17,7 +16,6 @@ import {
   CaseCategory,
   RegisterCategory,
   calculateTotals,
-  //SubmissionStats,
   DownloadReportQuery,
 } from './stationrequirements.types';
 import { catchAsync } from '../../utils/catchasync';
@@ -790,11 +788,9 @@ export const getSubmissionStatsHandler = catchAsync(async (req: AuthenticatedReq
   sendResponse(res, 200, stats, 'Submission statistics retrieved successfully');
 });
 
-
-
 // ============================================================
 // GET /api/station-requirements/download-report
-// Download consolidated report (PDF or Word)
+// Download consolidated report (PDF or Word) - Simplified: Only Submitted vs Not Submitted
 // ============================================================
 export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
   // Only admins can download reports
@@ -831,7 +827,8 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
     filterInfo = `To: ${queryParams.toDate}`;
   }
   if (queryParams.status) {
-    filterInfo += ` | Status: ${queryParams.status}`;
+    const statusLabel = queryParams.status === 'submitted' ? 'Submitted' : 'Not Submitted';
+    filterInfo += ` | Status: ${statusLabel}`;
   }
 
   // Generate PDF
@@ -863,7 +860,7 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
     doc.fontSize(10).text(`Filter: ${filterInfo}`, { align: 'center' });
     doc.moveDown();
 
-    // Summary Section
+    // Summary Section - Simplified
     doc.fontSize(14).font('Helvetica-Bold').text('SUMMARY', { underline: true });
     doc.moveDown(0.5);
 
@@ -871,11 +868,7 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
       ['Metric', 'Value'],
       ['Total Stations', summary.totalStations],
       ['Submitted', summary.submitted],
-      ['Pending Review', summary.pendingReview],
-      ['Approved', summary.approved],
-      ['Needs Revision', summary.needsRevision],
-      ['Draft Only', summary.draftOnly],
-      ['Not Started', summary.notStarted],
+      ['Not Submitted', summary.notSubmitted],
       ['Total File Folders', summary.totalFileFolders],
       ['Total Registers', summary.totalRegisters],
       ['Completion Rate', `${summary.completionRate}%`],
@@ -887,7 +880,6 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
       doc.font(index === 0 ? 'Helvetica-Bold' : 'Helvetica')
          .fontSize(index === 0 ? 10 : 9)
          .text(row[0], x, y, { width: 150 });
-      // Fix: Ensure the value is converted to string
       const value = row[1] !== undefined && row[1] !== null ? String(row[1]) : '';
       doc.text(value, x + 150, y, { width: 100 });
       y += 20;
@@ -895,7 +887,7 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
 
     doc.moveDown(2);
 
-    // Detailed Report Table
+    // Detailed Report Table - Simplified
     doc.fontSize(14).font('Helvetica-Bold').text('DETAILED REPORT', { underline: true });
     doc.moveDown(0.5);
 
@@ -927,13 +919,8 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
         rowY = 50;
       }
 
-      const status = row['Submission Status'] || 'Not Started';
-      let statusColor = 'black';
-      if (status === 'Approved') statusColor = 'green';
-      else if (status === 'Pending Review') statusColor = 'orange';
-      else if (status === 'Needs Revision') statusColor = 'red';
-      else if (status === 'Draft') statusColor = 'blue';
-      else if (status === 'Not Started') statusColor = 'gray';
+      const status = row['Submission Status'];
+      const statusColor = status === 'Submitted' ? 'green' : 'gray';
 
       const rowData = [
         (rowIndex + 1).toString(),
@@ -966,53 +953,50 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
       }
     });
 
-    // Zero Submissions Section
-    const zeroSubmissions = rows.filter(row => 
-      row['Submission Status'] === 'Not Started' || row['Submission Status'] === 'Draft'
-    );
+    // Not Submitted Section
+    const notSubmittedRows = rows.filter(row => row['Submission Status'] === 'Not Submitted');
 
-    if (zeroSubmissions.length > 0) {
+    if (notSubmittedRows.length > 0) {
       doc.addPage();
-      doc.fontSize(14).font('Helvetica-Bold').text('ZERO SUBMISSIONS REPORT', { underline: true });
+      doc.fontSize(14).font('Helvetica-Bold').text('NOT SUBMITTED STATIONS', { underline: true });
       doc.moveDown(0.5);
-      doc.fontSize(10).font('Helvetica').text(`Total stations with no submission or draft only: ${zeroSubmissions.length}`);
+      doc.fontSize(10).font('Helvetica').text(`Total stations not submitted: ${notSubmittedRows.length}`);
       doc.moveDown();
 
-      // Table for zero submissions
-      const zeroHeaders = ['#', 'Station', 'DR', 'Status'];
-      const zeroColWidths = [30, 120, 120, 100];
-      let zeroY = doc.y;
+      // Table for not submitted stations
+      const nsHeaders = ['#', 'Station', 'DR'];
+      const nsColWidths = [30, 150, 150];
+      let nsY = doc.y;
 
       doc.fontSize(8).font('Helvetica-Bold');
-      let zeroX = 50;
-      zeroHeaders.forEach((header, index) => {
-        doc.text(header, zeroX, zeroY, { width: zeroColWidths[index], align: 'center' });
-        zeroX += zeroColWidths[index];
+      let nsX = 50;
+      nsHeaders.forEach((header, index) => {
+        doc.text(header, nsX, nsY, { width: nsColWidths[index], align: 'center' });
+        nsX += nsColWidths[index];
       });
-      doc.moveTo(50, zeroY + 15).lineTo(50 + zeroColWidths.reduce((a, b) => a + b, 0), zeroY + 15).stroke();
+      doc.moveTo(50, nsY + 15).lineTo(50 + nsColWidths.reduce((a, b) => a + b, 0), nsY + 15).stroke();
       doc.moveDown();
 
-      zeroY = doc.y;
-      zeroSubmissions.forEach((row, index) => {
-        if (zeroY > 700) {
+      nsY = doc.y;
+      notSubmittedRows.forEach((row, index) => {
+        if (nsY > 700) {
           doc.addPage();
-          zeroY = 50;
+          nsY = 50;
         }
 
         const rowData = [
           (index + 1).toString(),
           row['Station'] || '',
           row['Assigned DR'] || '',
-          row['Submission Status'] || 'Not Started',
         ];
 
         doc.fontSize(7).font('Helvetica');
         let xPos = 50;
         rowData.forEach((data, colIndex) => {
-          doc.text(data, xPos, zeroY, { width: zeroColWidths[colIndex], align: 'center' });
-          xPos += zeroColWidths[colIndex];
+          doc.text(data, xPos, nsY, { width: nsColWidths[colIndex], align: 'center' });
+          xPos += nsColWidths[colIndex];
         });
-        zeroY += 20;
+        nsY += 20;
       });
     }
 
@@ -1036,64 +1020,50 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
           th { background-color: #2b6cb0; color: white; padding: 10px; border: 1px solid #2b6cb0; text-align: left; }
           td { padding: 8px; border: 1px solid #e2e8f0; }
           tr:nth-child(even) { background-color: #f7fafc; }
-          .status-approved { color: #38a169; font-weight: bold; }
-          .status-pending { color: #d69e2e; font-weight: bold; }
-          .status-revision { color: #e53e3e; font-weight: bold; }
-          .status-draft { color: #3182ce; font-weight: bold; }
-          .status-notstarted { color: #718096; font-weight: bold; }
-          .status-submitted { color: #2b6cb0; font-weight: bold; }
+          .status-submitted { color: #38a169; font-weight: bold; }
+          .status-notsubmitted { color: #718096; font-weight: bold; }
           .summary-table { width: 50%; margin: 20px auto; }
           .summary-table td { padding: 8px 15px; }
           .summary-table tr:nth-child(even) { background-color: #edf2f7; }
           .summary-table .label { font-weight: bold; }
-          .zero-section { margin-top: 30px; }
-          .page-break { page-break-after: always; }
           .footer { text-align: center; color: #718096; font-size: 10px; margin-top: 30px; }
-    </style>
-  </head>
-  <body>
-    <h1>STATION REQUIREMENTS REPORT</h1>
-    <p class="subtitle">Generated: ${new Date().toLocaleString()}</p>
-    <p class="subtitle">Filter: ${filterInfo}</p>
+          .page-break { page-break-after: always; }
+        </style>
+      </head>
+      <body>
+        <h1>STATION REQUIREMENTS REPORT</h1>
+        <p class="subtitle">Generated: ${new Date().toLocaleString()}</p>
+        <p class="subtitle">Filter: ${filterInfo}</p>
 
-    <h2>SUMMARY</h2>
-    <table class="summary-table">
-      <tr><td class="label">Total Stations</td><td>${summary.totalStations}</td></tr>
-      <tr><td class="label">Submitted</td><td>${summary.submitted}</td></tr>
-      <tr><td class="label">Pending Review</td><td>${summary.pendingReview}</td></tr>
-      <tr><td class="label">Approved</td><td>${summary.approved}</td></tr>
-      <tr><td class="label">Needs Revision</td><td>${summary.needsRevision}</td></tr>
-      <tr><td class="label">Draft Only</td><td>${summary.draftOnly}</td></tr>
-      <tr><td class="label">Not Started</td><td>${summary.notStarted}</td></tr>
-      <tr><td class="label">Total File Folders</td><td>${summary.totalFileFolders}</td></tr>
-      <tr><td class="label">Total Registers</td><td>${summary.totalRegisters}</td></tr>
-      <tr><td class="label">Completion Rate</td><td>${summary.completionRate}%</td></tr>
-    </table>
+        <h2>SUMMARY</h2>
+        <table class="summary-table">
+          <tr><td class="label">Total Stations</td><td>${summary.totalStations}</td></tr>
+          <tr><td class="label">Submitted</td><td>${summary.submitted}</td></tr>
+          <tr><td class="label">Not Submitted</td><td>${summary.notSubmitted}</td></tr>
+          <tr><td class="label">Total File Folders</td><td>${summary.totalFileFolders}</td></tr>
+          <tr><td class="label">Total Registers</td><td>${summary.totalRegisters}</td></tr>
+          <tr><td class="label">Completion Rate</td><td>${summary.completionRate}%</td></tr>
+        </table>
 
-    <h2>DETAILED REPORT</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Station</th>
-          <th>Assigned DR</th>
-          <th>Submission Status</th>
-          <th>File Folders</th>
-          <th>Registers</th>
-          <th>Total Items</th>
-        </tr>
-      </thead>
-      <tbody>
+        <h2>DETAILED REPORT</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Station</th>
+              <th>Assigned DR</th>
+              <th>Submission Status</th>
+              <th>File Folders</th>
+              <th>Registers</th>
+              <th>Total Items</th>
+            </tr>
+          </thead>
+          <tbody>
     `;
 
     rows.forEach((row, index) => {
-      const status = row['Submission Status'] || 'Not Started';
-      let statusClass = 'status-notstarted';
-      if (status === 'Approved') statusClass = 'status-approved';
-      else if (status === 'Pending Review') statusClass = 'status-pending';
-      else if (status === 'Needs Revision') statusClass = 'status-revision';
-      else if (status === 'Draft') statusClass = 'status-draft';
-      else if (status === 'Submitted') statusClass = 'status-submitted';
+      const status = row['Submission Status'];
+      const statusClass = status === 'Submitted' ? 'status-submitted' : 'status-notsubmitted';
 
       html += `
         <tr>
@@ -1109,43 +1079,35 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
     });
 
     html += `
-      </tbody>
-    </table>
+          </tbody>
+        </table>
     `;
 
-    // Zero Submissions Section
-    const zeroSubmissions = rows.filter(row => 
-      row['Submission Status'] === 'Not Started' || row['Submission Status'] === 'Draft'
-    );
+    // Not Submitted Section
+    const notSubmittedRows = rows.filter(row => row['Submission Status'] === 'Not Submitted');
 
-    if (zeroSubmissions.length > 0) {
+    if (notSubmittedRows.length > 0) {
       html += `
         <div class="page-break"></div>
-        <h2>ZERO SUBMISSIONS</h2>
-        <p>Total stations with no submission or draft only: ${zeroSubmissions.length}</p>
+        <h2>NOT SUBMITTED STATIONS</h2>
+        <p>Total stations not submitted: ${notSubmittedRows.length}</p>
         <table>
           <thead>
             <tr>
               <th>#</th>
               <th>Station</th>
               <th>Assigned DR</th>
-              <th>Submission Status</th>
             </tr>
           </thead>
           <tbody>
       `;
 
-      zeroSubmissions.forEach((row, index) => {
-        const status = row['Submission Status'] || 'Not Started';
-        let statusClass = 'status-notstarted';
-        if (status === 'Draft') statusClass = 'status-draft';
-
+      notSubmittedRows.forEach((row, index) => {
         html += `
           <tr>
             <td>${index + 1}</td>
             <td>${row['Station'] || ''}</td>
             <td>${row['Assigned DR'] || ''}</td>
-            <td class="${statusClass}">${status}</td>
           </tr>
         `;
       });
@@ -1157,10 +1119,10 @@ export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest
     }
 
     html += `
-    <p class="footer">Generated by Court System - ${new Date().toLocaleString()}</p>
-  </body>
-  </html>
-  `;
+        <p class="footer">Generated by Court System - ${new Date().toLocaleString()}</p>
+      </body>
+      </html>
+    `;
 
     res.setHeader('Content-Type', 'application/msword');
     res.setHeader('Content-Disposition', `attachment; filename=station-requirements-report-${new Date().toISOString().split('T')[0]}.doc`);

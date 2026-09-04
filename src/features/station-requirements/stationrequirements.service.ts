@@ -1270,31 +1270,26 @@ export const getMySubmissions = async (
   return { submissions, total };
 };
 
-// ============================================================
-// GET STATION SUBMISSION STATUS FROM USERS
-// ============================================================
+
+// Replace getStationSubmissionStatusFromUsers with this simplified version
+
 export const getStationSubmissionStatusFromUsers = async (): Promise<{
   stations: Array<{
     station: string;
     assignedDR: string;
     assignedDRName: string;
     assignedDREmail: string;
-    status: 'not_started' | 'in_progress' | 'submitted' | 'pending_review' | 'approved' | 'needs_revision';
+    status: 'submitted' | 'not_submitted';
     lastUpdatedAt?: string;
     submittedAt?: string;
-    hasDraft: boolean;
     hasSubmitted: boolean;
     fileFoldersTotal: number;
     registersTotal: number;
   }>;
   summary: {
     totalStations: number;
-    notStarted: number;
-    inProgress: number;
     submitted: number;
-    pendingReview: number;
-    approved: number;
-    needsRevision: number;
+    notSubmitted: number;
   };
 }> => {
   // Get all DRs with their stations from users table
@@ -1315,25 +1310,19 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
       stations: [],
       summary: {
         totalStations: 0,
-        notStarted: 0,
-        inProgress: 0,
         submitted: 0,
-        pendingReview: 0,
-        approved: 0,
-        needsRevision: 0,
+        notSubmitted: 0,
       },
     };
   }
 
-  // Get all submissions
+  // Get all submissions - only need status to determine submitted/not submitted
   const submissionsResult = await query(`
     SELECT 
       station,
       status,
-      review_status,
       submitted_at,
       updated_at,
-      submitted_by,
       submitter_name,
       COALESCE(
         (SELECT SUM((value->>'quantity')::int) FROM jsonb_array_elements(file_folders) AS value),
@@ -1348,34 +1337,29 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
   `);
 
   // Create a map of station -> latest submission
-  const stationSubmissionMap: Record<string, any> = {};
+  const stationSubmissionMap = new Map<string, any>();
 
   for (const row of submissionsResult.rows) {
-    const station = String(row.station);
+    const station = String(row.station).trim();
     // Only keep the latest submission for each station
-    if (!stationSubmissionMap[station]) {
-      stationSubmissionMap[station] = row;
+    if (!stationSubmissionMap.has(station)) {
+      stationSubmissionMap.set(station, row);
     }
   }
 
-  // Build station status list
+  // Build station status list - ONLY Submitted or Not Submitted
   const stations: Array<any> = [];
   const summary = {
     totalStations: 0,
-    notStarted: 0,
-    inProgress: 0,
     submitted: 0,
-    pendingReview: 0,
-    approved: 0,
-    needsRevision: 0,
+    notSubmitted: 0,
   };
 
   for (const userRow of usersResult.rows) {
-    const station = String(userRow.station);
-    const submission = stationSubmissionMap[station];
+    const station = String(userRow.station).trim();
+    const submission = stationSubmissionMap.get(station);
 
-    let status: any = 'not_started';
-    let hasDraft = false;
+    let status: 'submitted' | 'not_submitted' = 'not_submitted';
     let hasSubmitted = false;
     let fileFoldersTotal = 0;
     let registersTotal = 0;
@@ -1383,39 +1367,30 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
     let updatedAt: string | undefined;
 
     if (submission) {
-      const subStatus = String(submission.status);
-      const reviewStatus = submission.review_status ? String(submission.review_status) : undefined;
-
-      if (subStatus === 'draft') {
-        status = 'in_progress';
-        hasDraft = true;
-      } else if (subStatus === 'submitted') {
+      const subStatus = String(submission.status).trim();
+      
+      // Only check if status is 'submitted'
+      if (subStatus === 'submitted') {
+        status = 'submitted';
         hasSubmitted = true;
-        if (reviewStatus === 'approved') {
-          status = 'approved';
-        } else if (reviewStatus === 'needs_revision') {
-          status = 'needs_revision';
-        } else if (reviewStatus === 'pending' || !reviewStatus) {
-          status = 'pending_review';
-        } else {
-          status = 'submitted';
-        }
+        summary.submitted++;
+        
+        fileFoldersTotal = Number(submission.file_folders_total) || 0;
+        registersTotal = Number(submission.registers_total) || 0;
+        submittedAt = submission.submitted_at ? String(submission.submitted_at) : undefined;
+        updatedAt = submission.updated_at ? String(submission.updated_at) : undefined;
+      } else {
+        // Draft or any other status = Not Submitted
+        summary.notSubmitted++;
+        updatedAt = submission.updated_at ? String(submission.updated_at) : undefined;
       }
-
-      fileFoldersTotal = Number(submission.file_folders_total) || 0;
-      registersTotal = Number(submission.registers_total) || 0;
-      submittedAt = submission.submitted_at ? String(submission.submitted_at) : undefined;
-      updatedAt = submission.updated_at ? String(submission.updated_at) : undefined;
+    } else {
+      // No submission at all = Not Submitted
+      summary.notSubmitted++;
     }
 
-    // Update summary counts
+    // Always increment total stations
     summary.totalStations++;
-    if (status === 'not_started') summary.notStarted++;
-    else if (status === 'in_progress') summary.inProgress++;
-    else if (status === 'submitted') summary.submitted++;
-    else if (status === 'pending_review') summary.pendingReview++;
-    else if (status === 'approved') summary.approved++;
-    else if (status === 'needs_revision') summary.needsRevision++;
 
     stations.push({
       station,
@@ -1425,7 +1400,6 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
       status,
       lastUpdatedAt: updatedAt,
       submittedAt,
-      hasDraft,
       hasSubmitted,
       fileFoldersTotal,
       registersTotal,
@@ -1438,8 +1412,11 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
   };
 };
 
+// services/stationrequirements.service.ts
+// services/stationrequirements.service.ts
+
 // ============================================================
-// GET STATION REPORT
+// GET STATION REPORT - Simplified: Only Submitted vs Not Submitted
 // ============================================================
 export const getStationReport = async (
   queryParams: GetStationReportQuery
@@ -1478,14 +1455,14 @@ export const getStationReport = async (
   const startIndex = (page - 1) * limit;
   const paginatedStations = filteredStations.slice(startIndex, startIndex + limit);
 
-  // Build status counts
+  // Build status counts - Map 'not_submitted' to 'not_started' for the StationStatus type
   const statusCounts: Record<StationStatus, number> = {
-    'not_started': summary.notStarted,
-    'in_progress': summary.inProgress,
+    'not_started': summary.notSubmitted,
+    'in_progress': 0,
     'submitted': summary.submitted,
-    'pending_review': summary.pendingReview,
-    'approved': summary.approved,
-    'needs_revision': summary.needsRevision,
+    'pending_review': 0,
+    'approved': 0,
+    'needs_revision': 0,
   };
 
   return {
@@ -1493,26 +1470,27 @@ export const getStationReport = async (
     stationsByStatus: statusCounts,
     stations: paginatedStations.map(s => ({
       station: s.station,
-      status: s.status,
+      // Map 'not_submitted' to 'not_started' for the StationStatus type
+      status: s.status === 'submitted' ? 'submitted' : 'not_started',
       lastUpdatedAt: s.lastUpdatedAt,
       submittedAt: s.submittedAt,
       submittedBy: s.assignedDR,
       submitterName: s.assignedDRName,
-      draftExists: s.hasDraft,
+      draftExists: false,
       hasSubmitted: s.hasSubmitted,
       progress: {
         fileFoldersComplete: s.fileFoldersTotal > 0,
         registersComplete: s.registersTotal > 0,
-        percentageComplete: s.hasSubmitted ? 100 : (s.hasDraft ? 50 : 0),
+        percentageComplete: s.hasSubmitted ? 100 : 0,
       },
     })),
     summary: {
-      completed: summary.approved,
-      pending: summary.inProgress + summary.submitted + summary.pendingReview,
-      notStarted: summary.notStarted,
+      completed: summary.submitted,
+      pending: 0,
+      notStarted: summary.notSubmitted,
       total: summary.totalStations,
       completionRate: summary.totalStations > 0 
-        ? Math.round((summary.approved / summary.totalStations) * 100)
+        ? Math.round((summary.submitted / summary.totalStations) * 100)
         : 0,
     },
   };
@@ -1598,7 +1576,7 @@ export const getSubmissionStats = async (
 };
 
 // ============================================================
-// GENERATE REPORT DATA
+// GENERATE REPORT DATA - Simplified: Only Submitted vs Not Submitted
 // ============================================================
 export const generateReportData = async (
   queryParams: DownloadReportQuery
@@ -1624,11 +1602,7 @@ export const generateReportData = async (
       summary: {
         totalStations: 0,
         submitted: 0,
-        draftOnly: 0,
-        notStarted: 0,
-        pendingReview: 0,
-        approved: 0,
-        needsRevision: 0,
+        notSubmitted: 0,
         totalFileFolders: 0,
         totalRegisters: 0,
         completionRate: 0,
@@ -1693,16 +1667,12 @@ export const generateReportData = async (
     }
   }
 
-  // Build report data
+  // Build report data - Only Submitted vs Not Submitted
   const rows: ReportRow[] = [];
   const summary = {
     totalStations: 0,
     submitted: 0,
-    draftOnly: 0,
-    notStarted: 0,
-    pendingReview: 0,
-    approved: 0,
-    needsRevision: 0,
+    notSubmitted: 0,
     totalFileFolders: 0,
     totalRegisters: 0,
     completionRate: 0,
@@ -1716,77 +1686,62 @@ export const generateReportData = async (
 
     summary.totalStations++;
 
-    let row: ReportRow = {
-      'Station': station,
-      'Assigned DR': assignedDR,
-      'DR Email': assignedDREmail,
-      'Submission Status': 'Not Started',
-      'Review Status': 'N/A',
-      'File Folders': 0,
-      'Registers': 0,
-      'Total Items': 0,
-      'Submitted At': 'N/A',
-      'Last Updated': 'N/A',
-      'Admin Notes': '',
-    };
+    let isSubmitted = false;
+    let fileFoldersTotal = 0;
+    let registersTotal = 0;
+    let submittedAt = 'N/A';
+    let updatedAt = 'N/A';
 
     if (submission) {
       const subStatus = String(submission.status);
-      const reviewStatus = submission.review_status ? String(submission.review_status) : null;
-      const fileFoldersTotal = Number(submission.file_folders_total) || 0;
-      const registersTotal = Number(submission.registers_total) || 0;
-      const totalItems = fileFoldersTotal + registersTotal;
-
-      let statusText = 'Draft';
+      fileFoldersTotal = Number(submission.file_folders_total) || 0;
+      registersTotal = Number(submission.registers_total) || 0;
+      
+      // Only count as submitted if status is 'submitted'
       if (subStatus === 'submitted') {
-        if (reviewStatus === 'approved') {
-          statusText = 'Approved';
-          summary.approved++;
-        } else if (reviewStatus === 'needs_revision') {
-          statusText = 'Needs Revision';
-          summary.needsRevision++;
-        } else if (reviewStatus === 'pending' || !reviewStatus) {
-          statusText = 'Pending Review';
-          summary.pendingReview++;
-        } else {
-          statusText = 'Submitted';
-          summary.submitted++;
-        }
+        isSubmitted = true;
+        summary.submitted++;
+        submittedAt = submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'N/A';
+        updatedAt = submission.updated_at ? new Date(submission.updated_at).toLocaleDateString() : 'N/A';
+        
+        summary.totalFileFolders += fileFoldersTotal;
+        summary.totalRegisters += registersTotal;
       } else {
-        statusText = 'Draft';
-        summary.draftOnly++;
+        // Drafts count as Not Submitted
+        summary.notSubmitted++;
+        updatedAt = submission.updated_at ? new Date(submission.updated_at).toLocaleDateString() : 'N/A';
       }
-
-      row = {
-        'Station': station,
-        'Assigned DR': assignedDR,
-        'DR Email': assignedDREmail,
-        'Submission Status': statusText,
-        'Review Status': reviewStatus || 'N/A',
-        'File Folders': fileFoldersTotal,
-        'Registers': registersTotal,
-        'Total Items': totalItems,
-        'Submitted At': submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'N/A',
-        'Last Updated': submission.updated_at ? new Date(submission.updated_at).toLocaleDateString() : 'N/A',
-        'Admin Notes': submission.admin_notes || '',
-      };
-
-      summary.totalFileFolders += fileFoldersTotal;
-      summary.totalRegisters += registersTotal;
     } else {
-      summary.notStarted++;
+      // No submission at all
+      summary.notSubmitted++;
     }
 
+    const row: ReportRow = {
+      'Station': station,
+      'Assigned DR': assignedDR,
+      'DR Email': assignedDREmail,
+      'Submission Status': isSubmitted ? 'Submitted' : 'Not Submitted',
+      'File Folders': fileFoldersTotal,
+      'Registers': registersTotal,
+      'Total Items': fileFoldersTotal + registersTotal,
+      'Submitted At': submittedAt,
+      'Last Updated': updatedAt,
+    };
+
     // Apply status filter if provided
-    if (status && row['Submission Status'] !== status) {
-      continue;
+    if (status) {
+      const statusFilter = status.toLowerCase();
+      const rowStatus = isSubmitted ? 'submitted' : 'not_submitted';
+      if (statusFilter !== rowStatus) {
+        continue;
+      }
     }
 
     rows.push(row);
   }
 
   summary.completionRate = summary.totalStations > 0 
-    ? Math.round((summary.approved / summary.totalStations) * 100) 
+    ? Math.round((summary.submitted / summary.totalStations) * 100) 
     : 0;
 
   return { rows, summary };

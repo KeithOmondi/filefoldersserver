@@ -8,6 +8,7 @@
 // - Added station tracking for admin dashboard
 // - Added comprehensive register categories for all case types
 // - Added report download types (PDF and DOCX)
+// - Simplified to only track Submitted vs Not Submitted
 
 // ============================================
 // Core Types
@@ -168,31 +169,25 @@ export interface DownloadReportQuery {
   format?: ReportFormat;
   fromDate?: string;
   toDate?: string;
-  status?: string;
+  status?: string; // 'submitted' | 'not_submitted' | ''
 }
 
 export interface ReportRow {
   'Station': string;
   'Assigned DR': string;
   'DR Email': string;
-  'Submission Status': string;
-  'Review Status': string;
+  'Submission Status': 'Submitted' | 'Not Submitted';
   'File Folders': number;
   'Registers': number;
   'Total Items': number;
   'Submitted At': string;
   'Last Updated': string;
-  'Admin Notes': string;
 }
 
 export interface ReportSummary {
   totalStations: number;
   submitted: number;
-  draftOnly: number;
-  notStarted: number;
-  pendingReview: number;
-  approved: number;
-  needsRevision: number;
+  notSubmitted: number;
   totalFileFolders: number;
   totalRegisters: number;
   completionRate: number;
@@ -829,22 +824,14 @@ export function generateReportSummary(
   statusCounts: Record<string, number>
 ): ReportSummary {
   const submitted = statusCounts['submitted'] || 0;
-  const pendingReview = statusCounts['pending_review'] || 0;
-  const approved = statusCounts['approved'] || 0;
-  const needsRevision = statusCounts['needs_revision'] || 0;
-  const draftOnly = statusCounts['in_progress'] || 0;
-  const notStarted = statusCounts['not_started'] || 0;
+  const notSubmitted = statusCounts['not_submitted'] || 0;
 
   return {
     totalStations,
     submitted,
-    draftOnly,
-    notStarted,
-    pendingReview,
-    approved,
-    needsRevision,
+    notSubmitted,
     totalFileFolders: 0,
     totalRegisters: 0,
-    completionRate: totalStations > 0 ? Math.round((approved / totalStations) * 100) : 0,
+    completionRate: totalStations > 0 ? Math.round((submitted / totalStations) * 100) : 0,
   };
 }

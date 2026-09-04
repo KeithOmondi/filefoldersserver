@@ -54,29 +54,29 @@ router.use(protect);
 // ✅ Shared Routes (Accessible by BOTH Admin and DR)
 // ============================================================
 
-// GET /api/station-requirements/categories - Get all case categories with their names (File Folders)
+// GET /api/station-requirements/categories
 router.get('/categories', adminOrDr, getCaseCategoriesHandler);
 
-// GET /api/station-requirements/register-categories - Get all register categories with their names
+// GET /api/station-requirements/register-categories
 router.get('/register-categories', adminOrDr, getRegisterCategoriesHandler);
 
-// GET /api/station-requirements/registers - Get all registers (flat list with categories)
+// GET /api/station-requirements/registers
 router.get('/registers', adminOrDr, getRegistersHandler);
 
-// GET /api/station-requirements/valid-cases - Get all valid case categories and names for frontend
+// GET /api/station-requirements/valid-cases
 router.get('/valid-cases', adminOrDr, getValidCasesHandler);
 
-// GET /api/station-requirements/valid-registers - Get all valid register categories and names for frontend
+// GET /api/station-requirements/valid-registers
 router.get('/valid-registers', adminOrDr, getValidRegistersHandler);
 
-// GET /api/station-requirements/stations - Get all unique stations
+// GET /api/station-requirements/stations
 router.get('/stations', adminOrDr, getUniqueStationsHandler);
 
 // ============================================================
-// ✅ DR Only Routes - Must come BEFORE admin routes
+// ✅ DR Only Routes
 // ============================================================
 
-// GET /api/station-requirements/my-submissions - DRs can view their own submissions (drafts + submitted)
+// GET /api/station-requirements/my-submissions
 router.get(
   '/my-submissions',
   drOnly,
@@ -84,7 +84,7 @@ router.get(
   getMySubmissionsHandler
 );
 
-// POST /api/station-requirements - DRs can create submissions (draft or submitted)
+// POST /api/station-requirements
 router.post(
   '/',
   drOnly,
@@ -92,7 +92,7 @@ router.post(
   createSubmissionHandler
 );
 
-// POST /api/station-requirements/:id/submit - DRs can submit their draft
+// POST /api/station-requirements/:id/submit
 router.post(
   '/:id/submit',
   drOnly,
@@ -100,7 +100,7 @@ router.post(
   submitDraftHandler
 );
 
-// PUT /api/station-requirements/:id - DRs can update their own submission
+// PUT /api/station-requirements/:id
 router.put(
   '/:id',
   drOnly,
@@ -109,13 +109,15 @@ router.put(
 );
 
 // ============================================================
-// ✅ Admin Only Routes - SPECIFIC routes FIRST
+// ✅ Admin Only Routes - MUST come before any /:id routes
 // ============================================================
 
-// ⚠️ IMPORTANT: Put /totals BEFORE /:id to avoid conflict
+// ⚠️ IMPORTANT: All specific routes MUST be defined BEFORE /:id
+
+// GET /api/station-requirements/totals
 router.get('/totals', adminOnly, getSubmissionTotalsHandler);
 
-// GET /api/station-requirements - Admin can view all submissions with filtering
+// GET /api/station-requirements
 router.get(
   '/',
   adminOnly,
@@ -123,7 +125,7 @@ router.get(
   getSubmissionsHandler
 );
 
-// GET /api/station-requirements/report - Admin station report
+// GET /api/station-requirements/report
 router.get(
   '/report',
   adminOnly,
@@ -131,21 +133,21 @@ router.get(
   getStationReportHandler
 );
 
-// GET /api/station-requirements/dashboard - Admin dashboard stats
+// GET /api/station-requirements/dashboard
 router.get(
   '/dashboard',
   adminOnly,
   getAdminDashboardHandler
 );
 
-// GET /api/station-requirements/review-queue - Admin review queue
+// GET /api/station-requirements/review-queue
 router.get(
   '/review-queue',
   adminOnly,
   getReviewQueueHandler
 );
 
-// GET /api/station-requirements/submission-stats - Admin can view submission statistics
+// GET /api/station-requirements/submission-stats
 router.get(
   '/submission-stats',
   adminOnly,
@@ -153,7 +155,8 @@ router.get(
   getSubmissionStatsHandler
 );
 
-// GET /api/station-requirements/download-report - Admin can download consolidated report (PDF or Word)
+// ⚠️ CRITICAL: /download-report MUST come before /:id
+// GET /api/station-requirements/download-report
 router.get(
   '/download-report',
   adminOnly,
@@ -165,7 +168,7 @@ router.get(
 // ✅ Admin Only Routes with ID parameter
 // ============================================================
 
-// POST /api/station-requirements/:id/review - Admin reviews a submission
+// POST /api/station-requirements/:id/review
 router.post(
   '/:id/review',
   adminOnly,
@@ -173,7 +176,7 @@ router.post(
   adminReviewHandler
 );
 
-// DELETE /api/station-requirements/:id - Admin can delete any submission
+// DELETE /api/station-requirements/:id
 router.delete(
   '/:id',
   adminOnly,
@@ -185,7 +188,7 @@ router.delete(
 // ✅ Shared Routes with ID parameter - MUST come LAST
 // ============================================================
 
-// GET /api/station-requirements/:id - Get a specific submission
+// GET /api/station-requirements/:id - This MUST be the LAST route
 router.get(
   '/:id',
   adminOrDr,
