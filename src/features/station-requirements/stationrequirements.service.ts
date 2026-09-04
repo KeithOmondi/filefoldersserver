@@ -1270,9 +1270,9 @@ export const getMySubmissions = async (
   return { submissions, total };
 };
 
-
-// Replace getStationSubmissionStatusFromUsers with this simplified version
-
+// ============================================================
+// GET STATION SUBMISSION STATUS FROM USERS - Simplified
+// ============================================================
 export const getStationSubmissionStatusFromUsers = async (): Promise<{
   stations: Array<{
     station: string;
@@ -1411,9 +1411,6 @@ export const getStationSubmissionStatusFromUsers = async (): Promise<{
     summary,
   };
 };
-
-// services/stationrequirements.service.ts
-// services/stationrequirements.service.ts
 
 // ============================================================
 // GET STATION REPORT - Simplified: Only Submitted vs Not Submitted
@@ -1576,12 +1573,12 @@ export const getSubmissionStats = async (
 };
 
 // ============================================================
-// GENERATE REPORT DATA - Simplified: Only Submitted vs Not Submitted
+// GENERATE REPORT DATA - Simplified: Only Submitted vs Not Submitted (NO DATE FILTERS)
 // ============================================================
 export const generateReportData = async (
   queryParams: DownloadReportQuery
 ): Promise<{ rows: ReportRow[]; summary: ReportSummary }> => {
-  const { fromDate, toDate, status } = queryParams;
+  const { status } = queryParams;
 
   // Get all DR stations
   const usersResult = await query(`
@@ -1610,26 +1607,7 @@ export const generateReportData = async (
     };
   }
 
-  // Build date conditions for submissions query
-  const conditions: string[] = [];
-  const values: unknown[] = [];
-  let paramIndex = 1;
-
-  if (fromDate) {
-    conditions.push(`sr.submitted_at >= $${paramIndex}`);
-    values.push(fromDate);
-    paramIndex++;
-  }
-
-  if (toDate) {
-    conditions.push(`sr.submitted_at <= $${paramIndex}`);
-    values.push(toDate);
-    paramIndex++;
-  }
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-  // Get all submissions
+  // Get ALL submissions - NO date filters
   const submissionsResult = await query(`
     SELECT 
       sr.id,
@@ -1653,9 +1631,8 @@ export const generateReportData = async (
         0
       ) as registers_total
     FROM station_requirements sr
-    ${whereClause}
     ORDER BY sr.station ASC, sr.updated_at DESC
-  `, values);
+  `);
 
   // Create a map of station -> latest submission
   const stationSubmissionMap = new Map<string, any>();

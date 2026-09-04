@@ -788,349 +788,403 @@ export const getSubmissionStatsHandler = catchAsync(async (req: AuthenticatedReq
   sendResponse(res, 200, stats, 'Submission statistics retrieved successfully');
 });
 
+
 // ============================================================
 // GET /api/station-requirements/download-report
-// Download consolidated report (PDF or Word) - Simplified: Only Submitted vs Not Submitted
+// Download consolidated report (PDF or Word) - Styled with Judiciary Letterhead
 // ============================================================
 export const downloadReportHandler = catchAsync(async (req: AuthenticatedRequest, res: Response) => {
-  // Only admins can download reports
+  // 1. Authorization
   if (req.user?.role !== 'admin') {
     throw new AppError('Only administrators can download reports', 403);
   }
-
-  console.log('🔍 [Controller] downloadReport');
 
   const validatedQuery = req.validatedQuery || req.query;
   const format = (validatedQuery.format || 'pdf') as 'pdf' | 'docx';
   
   const queryParams: DownloadReportQuery = {
     format: format,
-    fromDate: validatedQuery.fromDate as string | undefined,
-    toDate: validatedQuery.toDate as string | undefined,
     status: validatedQuery.status as string | undefined,
   };
 
-  // Generate report data using the service
+  // 2. Fetch Data
   const { rows, summary } = await stationRequirementsService.generateReportData(queryParams);
 
-  if (rows.length === 0) {
+  if (!rows || rows.length === 0) {
     throw new AppError('No data available for report', 404);
   }
 
-  // Build filter info for display
   let filterInfo = 'All Stations';
-  if (queryParams.fromDate && queryParams.toDate) {
-    filterInfo = `From: ${queryParams.fromDate} To: ${queryParams.toDate}`;
-  } else if (queryParams.fromDate) {
-    filterInfo = `From: ${queryParams.fromDate}`;
-  } else if (queryParams.toDate) {
-    filterInfo = `To: ${queryParams.toDate}`;
-  }
   if (queryParams.status) {
     const statusLabel = queryParams.status === 'submitted' ? 'Submitted' : 'Not Submitted';
     filterInfo += ` | Status: ${statusLabel}`;
   }
 
-  // Generate PDF
+  const logoUrl = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
+
+  // ============================================================
+  // FORMAT: PDF GENERATION (PDFKit Engine)
+  // ============================================================
   if (format === 'pdf') {
     const doc = new PDFDocument({
       size: 'A4',
-      margin: 50,
+      margin: 40,
+      bufferPages: true, // Enabled for dynamic page count computation (Page X of Y)
       info: {
         Title: 'Station Requirements Report',
         Author: 'Court System',
         Subject: 'Station Requirements Summary',
-        Keywords: 'station, requirements, report',
         CreationDate: new Date(),
       },
     });
 
+    const filename = `station-requirements-report-${new Date().toISOString().split('T')[0]}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=station-requirements-report-${new Date().toISOString().split('T')[0]}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(18).font('Helvetica-Bold').text('STATION REQUIREMENTS REPORT', { align: 'center' });
-    doc.moveDown(0.5);
-    doc.fontSize(10).font('Helvetica').text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
-    doc.moveDown(0.5);
+    // Fetch logo safely with timeout
+    let logoBuffer: Buffer | null = null;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const response = await fetch(logoUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
 
-    // Filter info
-    doc.fontSize(10).text(`Filter: ${filterInfo}`, { align: 'center' });
-    doc.moveDown();
+      if (response.ok) {
+        const arrayBuf = await response.arrayBuffer();
+        logoBuffer = Buffer.from(arrayBuf);
+      }
+    } catch {
+      console.warn('⚠️ Could not load logo image, applying fallback styling.');
+    }
 
-    // Summary Section - Simplified
-    doc.fontSize(14).font('Helvetica-Bold').text('SUMMARY', { underline: true });
-    doc.moveDown(0.5);
+    // --- Header Section ---
+    let currentY = 30;
+    if (logoBuffer) {
+      // Center image horizontally: A4 Width (595.28) - 80 / 2 = 257.64
+      doc.image(logoBuffer, 257, currentY, { width: 80 });
+      currentY += 85;
+    } else {
+      doc.fontSize(16).font('Helvetica-Bold').fillColor('#1e3a5f').text('JUDICIARY', 0, currentY, { align: 'center' });
+      doc.fontSize(9).font('Helvetica').fillColor('#4B5563').text('REPUBLIC OF KENYA', 0, currentY + 18, { align: 'center' });
+      currentY += 40;
+    }
 
-    const summaryData: Array<[string, string | number]> = [
-      ['Metric', 'Value'],
-      ['Total Stations', summary.totalStations],
-      ['Submitted', summary.submitted],
-      ['Not Submitted', summary.notSubmitted],
-      ['Total File Folders', summary.totalFileFolders],
-      ['Total Registers', summary.totalRegisters],
-      ['Completion Rate', `${summary.completionRate}%`],
+    doc.fontSize(13).font('Helvetica-Bold').fillColor('#1e3a5f').text('OFFICE OF THE REGISTRAR', 0, currentY, { align: 'center' });
+    doc.fontSize(10).font('Helvetica').fillColor('#374151').text('HIGH COURT OF KENYA', 0, currentY + 16, { align: 'center' });
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#1e3a5f').text('STATION REQUIREMENTS REPORT', 0, currentY + 32, { align: 'center' });
+
+    currentY += 50;
+
+    // Double Accent Lines
+    doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor('#1e3a5f').lineWidth(1.5).stroke();
+    doc.moveTo(40, currentY + 3).lineTo(555, currentY + 3).strokeColor('#c59b27').lineWidth(1).stroke();
+
+    // Contact Information Bar
+    currentY += 10;
+    doc.fontSize(7.5).font('Helvetica').fillColor('#4B5563')
+      .text('Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi', 0, currentY, { align: 'center' })
+      .text('Tel: +254 0730 181478 | Email: registrar@highcourt.go.ke | www.judiciary.go.ke', 0, currentY + 11, { align: 'center' });
+
+    currentY += 26;
+    doc.moveTo(40, currentY).lineTo(555, currentY).strokeColor('#E5E7EB').lineWidth(0.5).stroke();
+
+    // Metadata Bar
+    currentY += 8;
+    doc.fontSize(8).font('Helvetica-Oblique').fillColor('#6B7280')
+      .text(`Generated: ${new Date().toLocaleString()}  |  Filter: ${filterInfo}`, 0, currentY, { align: 'center' });
+
+    // --- Summary Section ---
+    currentY += 22;
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e3a5f').text('EXECUTIVE SUMMARY', 40, currentY);
+    
+    currentY += 14;
+    const summaryX = 40;
+    const summaryWidth = 515;
+    const colWidth = summaryWidth / 6;
+
+    // Outer Summary Card
+    doc.roundedRect(summaryX, currentY, summaryWidth, 42, 4).fillAndStroke('#F8FAFC', '#E2E8F0');
+
+    const summaryLabels = ['Total Stations', 'Submitted', 'Pending', 'File Folders', 'Registers', 'Completion'];
+    const summaryValues = [
+      String(summary.totalStations),
+      String(summary.submitted),
+      String(summary.notSubmitted),
+      summary.totalFileFolders.toLocaleString(),
+      summary.totalRegisters.toLocaleString(),
+      `${summary.completionRate}%`
     ];
 
-    let y = doc.y;
-    summaryData.forEach((row, index) => {
-      const x = index === 0 ? 50 : 200;
-      doc.font(index === 0 ? 'Helvetica-Bold' : 'Helvetica')
-         .fontSize(index === 0 ? 10 : 9)
-         .text(row[0], x, y, { width: 150 });
-      const value = row[1] !== undefined && row[1] !== null ? String(row[1]) : '';
-      doc.text(value, x + 150, y, { width: 100 });
-      y += 20;
+    summaryLabels.forEach((label, i) => {
+      const cellX = summaryX + (i * colWidth);
+      doc.fontSize(7).font('Helvetica-Bold').fillColor('#64748B').text(label.toUpperCase(), cellX, currentY + 8, { width: colWidth, align: 'center' });
+      
+      let valColor = '#0F172A';
+      if (i === 1) valColor = '#10B981';
+      if (i === 2) valColor = '#EF4444';
+      
+      doc.fontSize(10).font('Helvetica-Bold').fillColor(valColor).text(summaryValues[i], cellX, currentY + 22, { width: colWidth, align: 'center' });
     });
 
-    doc.moveDown(2);
+    // --- Table Headers Setup ---
+    currentY += 56;
+    doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e3a5f').text('STATION DETAILS', 40, currentY);
+    currentY += 15;
 
-    // Detailed Report Table - Simplified
-    doc.fontSize(14).font('Helvetica-Bold').text('DETAILED REPORT', { underline: true });
-    doc.moveDown(0.5);
+    const tableX = 40;
+    const columns = [
+      { label: '#', width: 25, align: 'center' },
+      { label: 'Station', width: 140, align: 'left' },
+      { label: 'Assigned DR', width: 130, align: 'left' },
+      { label: 'Status', width: 80, align: 'center' },
+      { label: 'Folders', width: 45, align: 'right' },
+      { label: 'Registers', width: 45, align: 'right' },
+      { label: 'Total', width: 50, align: 'right' },
+    ];
 
-    // Table headers
-    const tableHeaders = ['#', 'Station', 'DR', 'Status', 'Folders', 'Registers', 'Total'];
-    const headerY = doc.y;
-    doc.fontSize(8).font('Helvetica-Bold');
+    const drawTableHeader = (yPos: number) => {
+      let x = tableX;
+      doc.rect(tableX, yPos, 515, 20).fill('#1e3a5f');
+      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#FFFFFF');
+      
+      columns.forEach(col => {
+        doc.text(col.label, x + 4, yPos + 6, { width: col.width - 8, align: col.align as any });
+        x += col.width;
+      });
+      return yPos + 20;
+    };
 
-    let tableX = 50;
-    const colWidths = [25, 80, 80, 70, 45, 45, 45];
-    
-    tableHeaders.forEach((header, index) => {
-      doc.text(header, tableX, headerY, { width: colWidths[index], align: 'center' });
-      tableX += colWidths[index];
-    });
+    currentY = drawTableHeader(currentY);
 
-    // Draw header line
-    doc.moveTo(50, headerY + 15).lineTo(50 + colWidths.reduce((a, b) => a + b, 0), headerY + 15).stroke();
-    doc.moveDown();
-
-    // Table rows
-    let rowY = doc.y;
-    let rowCount = 0;
-
-    rows.forEach((row, rowIndex) => {
-      // Check if we need a new page
-      if (rowY > 700) {
+    // --- Table Content ---
+    rows.forEach((row, index) => {
+      // Prevents table rows from breaking over page footers
+      if (currentY > 730) {
         doc.addPage();
-        rowY = 50;
+        currentY = 40;
+        currentY = drawTableHeader(currentY);
       }
 
-      const status = row['Submission Status'];
-      const statusColor = status === 'Submitted' ? 'green' : 'gray';
-
-      const rowData = [
-        (rowIndex + 1).toString(),
-        row['Station'] || '',
-        row['Assigned DR'] || '',
-        status,
-        String(row['File Folders'] || 0),
-        String(row['Registers'] || 0),
-        String(row['Total Items'] || 0),
-      ];
-
-      doc.fontSize(7).font('Helvetica');
-      let xPos = 50;
-      rowData.forEach((data, colIndex) => {
-        if (colIndex === 3) {
-          doc.fillColor(statusColor).text(data, xPos, rowY, { width: colWidths[colIndex], align: 'center' });
-          doc.fillColor('black');
-        } else {
-          doc.text(data, xPos, rowY, { width: colWidths[colIndex], align: 'center' });
-        }
-        xPos += colWidths[colIndex];
-      });
-
-      rowY += 20;
-      rowCount++;
-
-      // Draw row line
-      if (rowCount % 10 === 0) {
-        doc.moveTo(50, rowY).lineTo(50 + colWidths.reduce((a, b) => a + b, 0), rowY).stroke();
+      const isEven = index % 2 === 0;
+      if (isEven) {
+        doc.rect(tableX, currentY, 515, 18).fill('#F8FAFC');
       }
+
+      const status = row['Submission Status'] || 'Not Submitted';
+      const isSubmitted = status === 'Submitted';
+
+      let x = tableX;
+      doc.fontSize(7.5).font('Helvetica').fillColor('#1E293B');
+
+      // Index
+      doc.text(String(index + 1), x + 4, currentY + 5, { width: columns[0].width - 8, align: 'center' });
+      x += columns[0].width;
+
+      // Station Name
+      doc.text(row['Station'] || '-', x + 4, currentY + 5, { width: columns[1].width - 8, align: 'left', lineBreak: false });
+      x += columns[1].width;
+
+      // DR
+      doc.text(row['Assigned DR'] || '-', x + 4, currentY + 5, { width: columns[2].width - 8, align: 'left', lineBreak: false });
+      x += columns[2].width;
+
+      // Status Indicator
+      const circleColor = isSubmitted ? '#10B981' : '#9CA3AF';
+      const statusTextColor = isSubmitted ? '#065F46' : '#4B5563';
+      doc.circle(x + 12, currentY + 8.5, 3).fill(circleColor);
+      doc.fillColor(statusTextColor).text(status, x + 18, currentY + 5, { width: columns[3].width - 20, align: 'left' });
+      x += columns[3].width;
+
+      // Quantities
+      doc.fillColor('#1E293B');
+      doc.text(Number(row['File Folders'] || 0).toLocaleString(), x + 4, currentY + 5, { width: columns[4].width - 8, align: 'right' });
+      x += columns[4].width;
+
+      doc.text(Number(row['Registers'] || 0).toLocaleString(), x + 4, currentY + 5, { width: columns[5].width - 8, align: 'right' });
+      x += columns[5].width;
+
+      doc.font('Helvetica-Bold').text(Number(row['Total Items'] || 0).toLocaleString(), x + 4, currentY + 5, { width: columns[6].width - 8, align: 'right' });
+
+      currentY += 18;
     });
 
-    // Not Submitted Section
-    const notSubmittedRows = rows.filter(row => row['Submission Status'] === 'Not Submitted');
+    // Outer Table Line Bottom
+    doc.moveTo(tableX, currentY).lineTo(tableX + 515, currentY).strokeColor('#E2E8F0').lineWidth(1).stroke();
 
-    if (notSubmittedRows.length > 0) {
-      doc.addPage();
-      doc.fontSize(14).font('Helvetica-Bold').text('NOT SUBMITTED STATIONS', { underline: true });
-      doc.moveDown(0.5);
-      doc.fontSize(10).font('Helvetica').text(`Total stations not submitted: ${notSubmittedRows.length}`);
-      doc.moveDown();
+    // --- Dynamic Multi-Page Footer (Page X of Y) ---
+    const range = doc.bufferedPageRange();
+    const totalPages = range.count;
 
-      // Table for not submitted stations
-      const nsHeaders = ['#', 'Station', 'DR'];
-      const nsColWidths = [30, 150, 150];
-      let nsY = doc.y;
+    for (let i = 0; i < totalPages; i++) {
+      doc.switchToPage(i);
 
-      doc.fontSize(8).font('Helvetica-Bold');
-      let nsX = 50;
-      nsHeaders.forEach((header, index) => {
-        doc.text(header, nsX, nsY, { width: nsColWidths[index], align: 'center' });
-        nsX += nsColWidths[index];
-      });
-      doc.moveTo(50, nsY + 15).lineTo(50 + nsColWidths.reduce((a, b) => a + b, 0), nsY + 15).stroke();
-      doc.moveDown();
+      const pageHeight = doc.page.height;
+      const footerY = pageHeight - 30;
 
-      nsY = doc.y;
-      notSubmittedRows.forEach((row, index) => {
-        if (nsY > 700) {
-          doc.addPage();
-          nsY = 50;
-        }
+      // Divider Line above footer
+      doc.moveTo(40, footerY - 18).lineTo(555, footerY - 18).strokeColor('#E2E8F0').lineWidth(0.5).stroke();
 
-        const rowData = [
-          (index + 1).toString(),
-          row['Station'] || '',
-          row['Assigned DR'] || '',
-        ];
-
-        doc.fontSize(7).font('Helvetica');
-        let xPos = 50;
-        rowData.forEach((data, colIndex) => {
-          doc.text(data, xPos, nsY, { width: nsColWidths[colIndex], align: 'center' });
-          xPos += nsColWidths[colIndex];
+      // Motto / Legal Tagline (Centered)
+      doc
+        .fontSize(7.5)
+        .font('Helvetica-Oblique')
+        .fillColor('#9CA3AF')
+        .text('Social Transformation through Access to Justice — Justice Be Our Shield and Defender', 40, footerY - 10, {
+          width: 515,
+          align: 'center',
         });
-        nsY += 20;
-      });
+
+      // Page X of Y Counter (Right-aligned)
+      doc
+        .fontSize(8)
+        .font('Helvetica')
+        .fillColor('#6B7280')
+        .text(`Page ${i + 1} of ${totalPages}`, 40, footerY, {
+          width: 515,
+          align: 'right',
+        });
     }
 
     doc.end();
     return;
   }
 
-  // Generate Word (DOCX) - using simple HTML format that Word can read
+  // ============================================================
+  // FORMAT: WORD GENERATION (Native Docx Compatible HTML)
+  // ============================================================
   if (format === 'docx') {
-    let html = `
-      <html>
+    const htmlContent = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
       <head>
         <meta charset="UTF-8">
         <title>Station Requirements Report</title>
+        <!--[if gte mso 9]>
+        <xml>
+          <w:WordDocument>
+            <w:View>Print</w:View>
+            <w:Zoom>100</w:Zoom>
+            <w:DoNotOptimizeForCustomX选/>
+          </w:WordDocument>
+        </xml>
+        <![endif]-->
         <style>
-          body { font-family: Arial, sans-serif; margin: 40px; }
-          h1 { text-align: center; color: #1a365d; }
-          .subtitle { text-align: center; color: #4a5568; margin-bottom: 20px; }
-          h2 { color: #2d3748; border-bottom: 2px solid #4299e1; padding-bottom: 5px; margin-top: 30px; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 12px; }
-          th { background-color: #2b6cb0; color: white; padding: 10px; border: 1px solid #2b6cb0; text-align: left; }
-          td { padding: 8px; border: 1px solid #e2e8f0; }
-          tr:nth-child(even) { background-color: #f7fafc; }
-          .status-submitted { color: #38a169; font-weight: bold; }
-          .status-notsubmitted { color: #718096; font-weight: bold; }
-          .summary-table { width: 50%; margin: 20px auto; }
-          .summary-table td { padding: 8px 15px; }
-          .summary-table tr:nth-child(even) { background-color: #edf2f7; }
-          .summary-table .label { font-weight: bold; }
-          .footer { text-align: center; color: #718096; font-size: 10px; margin-top: 30px; }
-          .page-break { page-break-after: always; }
+          @page Section1 { size: 595.3pt 841.9pt; margin: 36.0pt 36.0pt 36.0pt 36.0pt; }
+          div.Section1 { page: Section1; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; }
+          .header { text-align: center; margin-bottom: 15px; }
+          .logo { max-height: 70px; width: auto; margin-bottom: 10px; }
+          .title-main { font-size: 16pt; font-weight: bold; color: #1e3a5f; text-transform: uppercase; margin: 0; }
+          .title-sub { font-size: 11pt; font-weight: 600; color: #475569; margin: 2px 0 0 0; }
+          .title-doc { font-size: 12pt; font-weight: bold; color: #c59b27; margin-top: 6px; }
+          .divider { border-bottom: 2px solid #1e3a5f; margin-top: 10px; }
+          .divider-accent { border-bottom: 1px solid #c59b27; margin-top: 2px; margin-bottom: 10px; }
+          .meta-info { font-size: 8pt; color: #64748b; text-align: center; margin-bottom: 20px; }
+          
+          /* Cards */
+          .section-title { font-size: 11pt; font-weight: bold; color: #1e3a5f; margin-bottom: 8px; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; }
+          .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; background-color: #f8fafc; }
+          .summary-table td { border: 1px solid #cbd5e1; padding: 8px; text-align: center; width: 16.6%; }
+          .summary-label { font-size: 7.5pt; font-weight: bold; color: #475569; text-transform: uppercase; }
+          .summary-value { font-size: 12pt; font-weight: bold; color: #0f172a; margin-top: 4px; }
+          
+          /* Main Table */
+          .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          .data-table th { background-color: #1e3a5f; color: #ffffff; font-size: 8pt; font-weight: bold; padding: 6px; border: 1px solid #1e3a5f; }
+          .data-table td { font-size: 8pt; padding: 6px; border: 1px solid #e2e8f0; vertical-align: middle; }
+          .data-table tr:nth-child(even) { background-color: #f8fafc; }
+          
+          /* Status Tags */
+          .badge-submitted { color: #065f46; font-weight: bold; }
+          .badge-pending { color: #4b5563; font-weight: bold; }
+          .footer { text-align: center; font-size: 8pt; color: #9ca3af; margin-top: 30px; font-style: italic; }
         </style>
       </head>
       <body>
-        <h1>STATION REQUIREMENTS REPORT</h1>
-        <p class="subtitle">Generated: ${new Date().toLocaleString()}</p>
-        <p class="subtitle">Filter: ${filterInfo}</p>
+        <div class="Section1">
+          <!-- Header -->
+          <div class="header">
+            <img src="${logoUrl}" class="logo" alt="Judiciary Logo"><br>
+            <div class="title-main">Office of the Registrar</div>
+            <div class="title-sub">HIGH COURT OF KENYA</div>
+            <div class="title-doc">STATION REQUIREMENTS REPORT</div>
+          </div>
 
-        <h2>SUMMARY</h2>
-        <table class="summary-table">
-          <tr><td class="label">Total Stations</td><td>${summary.totalStations}</td></tr>
-          <tr><td class="label">Submitted</td><td>${summary.submitted}</td></tr>
-          <tr><td class="label">Not Submitted</td><td>${summary.notSubmitted}</td></tr>
-          <tr><td class="label">Total File Folders</td><td>${summary.totalFileFolders}</td></tr>
-          <tr><td class="label">Total Registers</td><td>${summary.totalRegisters}</td></tr>
-          <tr><td class="label">Completion Rate</td><td>${summary.completionRate}%</td></tr>
-        </table>
+          <div class="divider"></div>
+          <div class="divider-accent"></div>
 
-        <h2>DETAILED REPORT</h2>
-        <table>
-          <thead>
+          <div class="meta-info">
+            Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi<br>
+            Tel: +254 0730 181478 | Email: registrar@highcourt.go.ke | www.judiciary.go.ke<br>
+            <strong>Generated:</strong> ${new Date().toLocaleString()} &nbsp;|&nbsp; <strong>Filter:</strong> ${filterInfo}
+          </div>
+
+          <!-- Summary -->
+          <div class="section-title">Executive Summary</div>
+          <table class="summary-table">
             <tr>
-              <th>#</th>
-              <th>Station</th>
-              <th>Assigned DR</th>
-              <th>Submission Status</th>
-              <th>File Folders</th>
-              <th>Registers</th>
-              <th>Total Items</th>
+              <td><div class="summary-label">Total Stations</div><div class="summary-value">${summary.totalStations}</div></td>
+              <td><div class="summary-label">Submitted</div><div class="summary-value" style="color: #10b981;">${summary.submitted}</div></td>
+              <td><div class="summary-label">Pending</div><div class="summary-value" style="color: #ef4444;">${summary.notSubmitted}</div></td>
+              <td><div class="summary-label">File Folders</div><div class="summary-value">${summary.totalFileFolders.toLocaleString()}</div></td>
+              <td><div class="summary-label">Registers</div><div class="summary-value">${summary.totalRegisters.toLocaleString()}</div></td>
+              <td><div class="summary-label">Completion Rate</div><div class="summary-value">${summary.completionRate}%</div></td>
             </tr>
-          </thead>
-          <tbody>
-    `;
+          </table>
 
-    rows.forEach((row, index) => {
-      const status = row['Submission Status'];
-      const statusClass = status === 'Submitted' ? 'status-submitted' : 'status-notsubmitted';
+          <!-- Detailed Data -->
+          <div class="section-title">Station Details</div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width: 5%;">#</th>
+                <th style="width: 25%; text-align: left;">Station</th>
+                <th style="width: 25%; text-align: left;">Assigned DR</th>
+                <th style="width: 15%; text-align: center;">Status</th>
+                <th style="width: 10%; text-align: right;">Folders</th>
+                <th style="width: 10%; text-align: right;">Registers</th>
+                <th style="width: 10%; text-align: right;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((row, index) => {
+                const status = row['Submission Status'] || 'Not Submitted';
+                const isSubmitted = status === 'Submitted';
+                return `
+                  <tr>
+                    <td style="text-align: center;">${index + 1}</td>
+                    <td><strong>${row['Station'] || '-'}</strong></td>
+                    <td>${row['Assigned DR'] || '-'}</td>
+                    <td style="text-align: center;" class="${isSubmitted ? 'badge-submitted' : 'badge-pending'}">
+                      ${isSubmitted ? '&#9679; Submitted' : '&#9675; Pending'}
+                    </td>
+                    <td style="text-align: right;">${Number(row['File Folders'] || 0).toLocaleString()}</td>
+                    <td style="text-align: right;">${Number(row['Registers'] || 0).toLocaleString()}</td>
+                    <td style="text-align: right;"><strong>${Number(row['Total Items'] || 0).toLocaleString()}</strong></td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
 
-      html += `
-        <tr>
-          <td>${index + 1}</td>
-          <td>${row['Station'] || ''}</td>
-          <td>${row['Assigned DR'] || ''}</td>
-          <td class="${statusClass}">${status}</td>
-          <td>${row['File Folders'] || 0}</td>
-          <td>${row['Registers'] || 0}</td>
-          <td>${row['Total Items'] || 0}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
-        </table>
-    `;
-
-    // Not Submitted Section
-    const notSubmittedRows = rows.filter(row => row['Submission Status'] === 'Not Submitted');
-
-    if (notSubmittedRows.length > 0) {
-      html += `
-        <div class="page-break"></div>
-        <h2>NOT SUBMITTED STATIONS</h2>
-        <p>Total stations not submitted: ${notSubmittedRows.length}</p>
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Station</th>
-              <th>Assigned DR</th>
-            </tr>
-          </thead>
-          <tbody>
-      `;
-
-      notSubmittedRows.forEach((row, index) => {
-        html += `
-          <tr>
-            <td>${index + 1}</td>
-            <td>${row['Station'] || ''}</td>
-            <td>${row['Assigned DR'] || ''}</td>
-          </tr>
-        `;
-      });
-
-      html += `
-          </tbody>
-        </table>
-      `;
-    }
-
-    html += `
-        <p class="footer">Generated by Court System - ${new Date().toLocaleString()}</p>
+          <div class="footer">
+            Social Transformation through Access to Justice &bull; Justice Be Our Shield and Defender
+          </div>
+        </div>
       </body>
       </html>
     `;
 
+    const filename = `station-requirements-report-${new Date().toISOString().split('T')[0]}.doc`;
     res.setHeader('Content-Type', 'application/msword');
-    res.setHeader('Content-Disposition', `attachment; filename=station-requirements-report-${new Date().toISOString().split('T')[0]}.doc`);
-    res.send(html);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(htmlContent);
     return;
   }
 
-  throw new AppError('Unsupported format. Please use pdf or docx.', 400);
+  throw new AppError('Unsupported format requested. Please specify pdf or docx.', 400);
 });
 
 // ============================================================
