@@ -112,7 +112,9 @@ const getLatestSubmissionForStation = async (
 // ============================================================
 
 export const createSubmission = async (
-  input: CreateSubmissionInput
+  input: CreateSubmissionInput,
+  userId?: string,
+  user?: { fullName: string; email: string }
 ): Promise<StationRequirementSubmission> => {
   const { station, courtOfAppeal, subordinateCourts } = input;
 
@@ -132,10 +134,18 @@ export const createSubmission = async (
 
     const result = await client.query(
       `INSERT INTO pending_proceedings_submissions 
-       (station, court_of_appeal, subordinate_courts, status, submitted_at, updated_at)
-       VALUES ($1, $2, $3, 'submitted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       (station, court_of_appeal, subordinate_courts, status, submitted_at, updated_at, 
+        submitted_by, submitter_name, submitter_email)
+       VALUES ($1, $2, $3, 'submitted', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $4, $5, $6)
        RETURNING *`,
-      [station, JSON.stringify(courtOfAppeal), JSON.stringify(subordinateCourts)]
+      [
+        station, 
+        JSON.stringify(courtOfAppeal), 
+        JSON.stringify(subordinateCourts),
+        userId || null,
+        user?.fullName || null,
+        user?.email || null
+      ]
     );
 
     await client.query('COMMIT');

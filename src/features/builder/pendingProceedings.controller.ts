@@ -52,11 +52,20 @@ export const createSubmissionController = catchAsync(
       throw new AppError(subordinateCourtsValidation.errors.join('; '), 400);
     }
 
-    const submission = await createSubmission(validated.body);
+    // ✅ Get user from request (assuming auth middleware adds user)
+    const authUser = req.user as { id: string; fullName: string; email: string } | undefined;
+    
+    const submission = await createSubmission(
+      validated.body,
+      authUser?.id,
+      authUser ? { fullName: authUser.fullName, email: authUser.email } : undefined
+    );
 
     res.status(201).json({
       success: true,
-      data: submission,
+      data: {
+        submission: submission
+      },
       message: 'Submission created successfully',
     });
   }
@@ -96,9 +105,12 @@ export const updateSubmissionController = catchAsync(
       validated.body
     );
 
+    // ✅ Fix: Return data as { submission: submission }
     res.status(200).json({
       success: true,
-      data: submission,
+      data: {
+        submission: submission  // ✅ Wrap in submission object
+      },
       message: 'Submission updated successfully',
     });
   }
@@ -114,9 +126,12 @@ export const getSubmissionController = catchAsync(
 
     const submission = await getSubmissionById(validated.params.id);
 
+    // ✅ Fix: Return data as { submission: submission }
     res.status(200).json({
       success: true,
-      data: submission,
+      data: {
+        submission: submission  // ✅ Wrap in submission object
+      },
     });
   }
 );
@@ -131,10 +146,11 @@ export const getSubmissionsController = catchAsync(
 
     const result = await getSubmissions(validated.query);
 
+    // ✅ This one is already correct - returns submissions array directly
     res.status(200).json({
       success: true,
-      data: result.submissions,
-      pagination: {
+      data: {
+        submissions: result.submissions,
         total: result.total,
         page: result.page,
         limit: result.limit,
@@ -173,12 +189,14 @@ export const getStationReportController = catchAsync(
 
     res.status(200).json({
       success: true,
-      data: result.report,
-      pagination: {
-        total: result.total,
-        page: result.page,
-        limit: result.limit,
-        hasMore: result.hasMore,
+      data: {
+        report: result.report,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          hasMore: result.hasMore,
+        },
       },
     });
   }
@@ -194,7 +212,9 @@ export const getSubmissionStatsController = catchAsync(
 
     res.status(200).json({
       success: true,
-      data: stats,
+      data: {
+        stats: stats,  // ✅ Wrap in stats object
+      },
     });
   }
 );
@@ -211,7 +231,9 @@ export const getAdminDashboardController = catchAsync(
 
     res.status(200).json({
       success: true,
-      data: stats,
+      data: {
+        data: stats,  // ✅ Wrap in data object
+      },
     });
   }
 );
@@ -230,27 +252,31 @@ export const downloadReportController = catchAsync(
 
     if (format === 'pdf') {
       // Generate PDF (implement with your PDF library of choice)
-      // For now, we'll return JSON
       res.status(200).json({
         success: true,
-        data: reportData,
-        format: 'pdf',
+        data: {
+          data: reportData,  // ✅ Wrap in data object
+          format: 'pdf',
+        },
         message: 'PDF generation not implemented yet',
       });
     } else if (format === 'docx') {
-      // Generate DOCX (implement with your DOCX library of choice)
       res.status(200).json({
         success: true,
-        data: reportData,
-        format: 'docx',
+        data: {
+          data: reportData,  // ✅ Wrap in data object
+          format: 'docx',
+        },
         message: 'DOCX generation not implemented yet',
       });
     } else {
       // Default to JSON
       res.status(200).json({
         success: true,
-        data: reportData,
-        format: 'json',
+        data: {
+          data: reportData,  // ✅ Wrap in data object
+          format: 'json',
+        },
       });
     }
   }
@@ -269,7 +295,9 @@ export const getCategoriesController = catchAsync(
 
     res.status(200).json({
       success: true,
-      data: categories,
+      data: {
+        data: categories,  // ✅ Wrap in data object
+      },
     });
   }
 );
@@ -302,8 +330,10 @@ export const getItemsByCategoryController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        category,
-        items,
+        data: {  // ✅ Wrap in data object
+          category,
+          items,
+        },
       },
     });
   }
@@ -383,12 +413,14 @@ export const bulkUpsertSubmissionsController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        results,
-        errors,
-        summary: {
-          total: submissions.length,
-          successful: results.length,
-          failed: errors.length,
+        data: {  // ✅ Wrap in data object
+          results,
+          errors,
+          summary: {
+            total: submissions.length,
+            successful: results.length,
+            failed: errors.length,
+          },
         },
       },
     });
