@@ -315,7 +315,7 @@ export const CASE_CATEGORIES = {
     "Arbitration",
     "Custom Tax Appeals",
     "Tribunal Appeals",
-    "Tribunal Appeal Miscellaneous"  // ✅ Added
+    "Tribunal Appeal Miscellaneous"
   ],
   "Admiralty": [
     "Admiralty"
@@ -367,7 +367,8 @@ export const CASE_REGISTERS = {
     "Anti-Corruption and Economic Crimes Petition Case Register",
     "Anti-Corruption and Economic Crimes Appeals Case Register",
     "Anti-Corruption and Economic Crimes Revision Case Register",
-    "Anti-Corruption and Economic Crimes Miscellaneous Case Register"
+    "Anti-Corruption and Economic Crimes Miscellaneous Case Register",
+    "ACEC Judicial Review Register"  // ✅ Added
   ],
   
   // C. CIVIL CASE REGISTERS
@@ -390,7 +391,7 @@ export const CASE_REGISTERS = {
     "Admiralty Case Register",
     "Custom Tax Appeals Register",
     "Tribunal Appeals Register",
-    "Tribunal Appeal Miscellaneous Register"  // ✅ Added
+    "Tribunal Appeal Miscellaneous Register"
   ],
   
   // E. CONSTITUTIONAL & HUMAN RIGHTS CASE REGISTERS
@@ -476,7 +477,7 @@ export const CASE_CODES = {
   "Commercial & Tax_Arbitration": "HCCOMMARB",
   "Commercial & Tax_Custom Tax Appeals": "HCCOMMCTA",
   "Commercial & Tax_Tribunal Appeals": "HCTA",
-  "Commercial & Tax_Tribunal Appeal Miscellaneous": "HCTAMISC",  // ✅ Added
+  "Commercial & Tax_Tribunal Appeal Miscellaneous": "HCTAMISC",
 
   // Admiralty
   "Admiralty_Admiralty": "HCCOMMADMIR",
@@ -522,7 +523,7 @@ export const CASE_COLORS = {
 
   // Anti-Corruption & Economic Crimes
   "Anti-Corruption & Economic Crimes_Appeals": "Blue",
-  "Anti-Corruption & Economic Crimes_Judicial Review": "Dark Green",
+  "Anti-Corruption & Economic Crimes_Judicial Review": "Lime Green",  // ✅ Fixed: changed from Red to Lime Green
   "Anti-Corruption & Economic Crimes_Suit": "Maroon",
   "Anti-Corruption & Economic Crimes_Revision": "Neon Green",
   "Anti-Corruption & Economic Crimes_Miscellaneous": "Orange",
@@ -540,7 +541,7 @@ export const CASE_COLORS = {
   "Commercial & Tax_Arbitration": "Light Purple",
   "Commercial & Tax_Custom Tax Appeals": "Light Purple",
   "Commercial & Tax_Tribunal Appeals": "Light Purple",
-  "Commercial & Tax_Tribunal Appeal Miscellaneous": "Light Purple",  // ✅ Added
+  "Commercial & Tax_Tribunal Appeal Miscellaneous": "Light Purple",
 
   // Admiralty
   "Admiralty_Admiralty": "Sky Blue",
