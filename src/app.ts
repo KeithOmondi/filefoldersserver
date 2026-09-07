@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/error.middleware';
 import authRouter from "./features/auth/auth.routes";
 import stationRequirementsRoutes from "./features/station-requirements/stationrequirements.routes";
 import userRoutes from "./features/users/users.routes"
+import bulderRoutes from "./features/builder/formBuilder.routes"
 import { env } from './config/env';
 
 const app: Application = express();
@@ -41,6 +42,7 @@ app.get('/health', (req: Request, res: Response) => {
 // Routes
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/station-requirements', stationRequirementsRoutes);
+app.use('/api/v1/forms', bulderRoutes);
 app.use('/api/v1/users', userRoutes);
 
 // Error handlers

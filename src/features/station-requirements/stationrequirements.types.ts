@@ -313,8 +313,9 @@ export const CASE_CATEGORIES = {
     "Commercial Appeal",
     "Commercial Petitions",
     "Arbitration",
-    "Custom Tax Appeals",        // ✅ Added
-    "Tribunal Appeals"            // ✅ Added
+    "Custom Tax Appeals",
+    "Tribunal Appeals",
+    "Tribunal Appeal Miscellaneous"  // ✅ Added
   ],
   "Admiralty": [
     "Admiralty"
@@ -387,8 +388,9 @@ export const CASE_REGISTERS = {
     "Insolvency Petition Case Register",
     "Arbitration Case Register",
     "Admiralty Case Register",
-    "Custom Tax Appeals Register",    // ✅ Added
-    "Tribunal Appeals Register"       // ✅ Added
+    "Custom Tax Appeals Register",
+    "Tribunal Appeals Register",
+    "Tribunal Appeal Miscellaneous Register"  // ✅ Added
   ],
   
   // E. CONSTITUTIONAL & HUMAN RIGHTS CASE REGISTERS
@@ -472,8 +474,9 @@ export const CASE_CODES = {
   "Commercial & Tax_Commercial Appeal": "HCCCOMMA",
   "Commercial & Tax_Commercial Petitions": "HCCOMMPET",
   "Commercial & Tax_Arbitration": "HCCOMMARB",
-  "Commercial & Tax_Custom Tax Appeals": "HCCOMMCTA",     // ✅ Added
-  "Commercial & Tax_Tribunal Appeals": "HCCOMMTA",        // ✅ Added
+  "Commercial & Tax_Custom Tax Appeals": "HCCOMMCTA",
+  "Commercial & Tax_Tribunal Appeals": "HCTA",
+  "Commercial & Tax_Tribunal Appeal Miscellaneous": "HCTAMISC",  // ✅ Added
 
   // Admiralty
   "Admiralty_Admiralty": "HCCOMMADMIR",
@@ -535,8 +538,9 @@ export const CASE_COLORS = {
   "Commercial & Tax_Commercial Appeal": "Light Purple",
   "Commercial & Tax_Commercial Petitions": "Light Purple",
   "Commercial & Tax_Arbitration": "Light Purple",
-  "Commercial & Tax_Custom Tax Appeals": "Light Purple",     // ✅ Added
-  "Commercial & Tax_Tribunal Appeals": "Light Purple",       // ✅ Added
+  "Commercial & Tax_Custom Tax Appeals": "Light Purple",
+  "Commercial & Tax_Tribunal Appeals": "Light Purple",
+  "Commercial & Tax_Tribunal Appeal Miscellaneous": "Light Purple",  // ✅ Added
 
   // Admiralty
   "Admiralty_Admiralty": "Sky Blue",
