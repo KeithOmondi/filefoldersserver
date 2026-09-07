@@ -523,7 +523,7 @@ export const CASE_COLORS = {
 
   // Anti-Corruption & Economic Crimes
   "Anti-Corruption & Economic Crimes_Appeals": "Blue",
-  "Anti-Corruption & Economic Crimes_Judicial Review": "Lime Green",  // ✅ Fixed: changed from Red to Lime Green
+  "Anti-Corruption & Economic Crimes_Judicial Review": "Dark Green",  // ✅ Corrected: Dark Green
   "Anti-Corruption & Economic Crimes_Suit": "Maroon",
   "Anti-Corruption & Economic Crimes_Revision": "Neon Green",
   "Anti-Corruption & Economic Crimes_Miscellaneous": "Orange",
