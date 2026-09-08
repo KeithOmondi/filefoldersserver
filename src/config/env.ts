@@ -4,6 +4,16 @@ import { z } from 'zod';
 // Load variables from .env into process.env
 dotenv.config();
 
+// Helper to validate individual URLs
+const isValidUrl = (url: string) => {
+  try {
+    new URL(url.trim());
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const envSchema = z
   .object({
     // Node Environment
@@ -12,10 +22,17 @@ const envSchema = z
     // Server Port
     PORT: z.coerce.number().default(5000),
 
-    // Client Origin (for CORS configuration)
-    CLIENT_ORIGIN: z.string().url({
-      message: 'CLIENT_ORIGIN must be a valid URL (e.g., http://localhost:5173)',
-    }).default('http://localhost:5173'),
+    // Client Origin (supports single or comma-separated URLs)
+    CLIENT_ORIGIN: z
+      .string()
+      .default('http://localhost:5173')
+      .refine(
+        (val) => val.split(',').every((origin) => isValidUrl(origin.trim())),
+        {
+          message:
+            'CLIENT_ORIGIN must be a valid URL or comma-separated list of URLs (e.g., http://localhost:5173,https://app.domain.com)',
+        }
+      ),
 
     // Database URL (PostgreSQL / Neon)
     DATABASE_URL: z.string().url({
@@ -71,10 +88,14 @@ const parseEnv = () => {
   const accessSecret = data.ACCESS_TOKEN_SECRET || data.JWT_SECRET!;
   const refreshSecret = data.REFRESH_TOKEN_SECRET || accessSecret;
 
+  // Split CLIENT_ORIGIN into an array for easy iteration in CORS middleware
+  const clientOrigins = data.CLIENT_ORIGIN.split(',').map((origin) => origin.trim());
+
   return {
     ...data,
     ACCESS_TOKEN_SECRET: accessSecret,
     REFRESH_TOKEN_SECRET: refreshSecret,
+    CLIENT_ORIGINS: clientOrigins, // Handy array variant exported alongside raw string
   };
 };
 

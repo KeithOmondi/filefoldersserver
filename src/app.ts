@@ -17,18 +17,29 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// CORS
+// Define allowed origins list
+const allowedOrigins = env.CLIENT_ORIGIN
+  ? env.CLIENT_ORIGIN.split(',').map((origin) => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+// CORS Setup for Multiple Domains
 app.use(
   cors({
-    origin: env.CLIENT_ORIGIN || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., Postman, mobile apps, curl)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error(`CORS policy: ${origin} is not allowed by CORS`));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cookie'],
   })
 );
-
-// ✅ REMOVE this line - it's causing the error
-// app.options('*', cors(corsOptions));
 
 // Health Check Route
 app.get('/health', (req: Request, res: Response) => {
