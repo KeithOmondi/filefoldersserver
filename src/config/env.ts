@@ -1,3 +1,5 @@
+// config/env.ts
+
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
@@ -22,15 +24,50 @@ const envSchema = z
     // Server Port
     PORT: z.coerce.number().default(5000),
 
-    // Client Origin (supports single or comma-separated URLs)
-    CLIENT_ORIGIN: z
+    // ✅ CLIENT_URL - for the Station Requirements app
+    CLIENT_URL: z
       .string()
+      .optional()
       .default('http://localhost:5173')
       .refine(
-        (val) => val.split(',').every((origin) => isValidUrl(origin.trim())),
+        (val) => {
+          if (!val) return true;
+          return val.split(',').every((origin) => isValidUrl(origin.trim()));
+        },
         {
           message:
-            'CLIENT_ORIGIN must be a valid URL or comma-separated list of URLs (e.g., http://localhost:5173,https://app.domain.com)',
+            'CLIENT_URL must be a valid URL or comma-separated list of URLs (e.g., http://localhost:5173,https://app.domain.com)',
+        }
+      ),
+
+    // ✅ PROCEEDINGS_URL - for the Pending Proceedings app
+    PROCEEDINGS_URL: z
+      .string()
+      .optional()
+      .default('http://localhost:5174')
+      .refine(
+        (val) => {
+          if (!val) return true;
+          return val.split(',').every((origin) => isValidUrl(origin.trim()));
+        },
+        {
+          message:
+            'PROCEEDINGS_URL must be a valid URL or comma-separated list of URLs (e.g., http://localhost:5174,https://proceedings.domain.com)',
+        }
+      ),
+
+    // ✅ Keep CLIENT_ORIGIN for backward compatibility (optional)
+    CLIENT_ORIGIN: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val) return true;
+          return val.split(',').every((origin) => isValidUrl(origin.trim()));
+        },
+        {
+          message:
+            'CLIENT_ORIGIN must be a valid URL or comma-separated list of URLs',
         }
       ),
 
@@ -88,14 +125,44 @@ const parseEnv = () => {
   const accessSecret = data.ACCESS_TOKEN_SECRET || data.JWT_SECRET!;
   const refreshSecret = data.REFRESH_TOKEN_SECRET || accessSecret;
 
-  // Split CLIENT_ORIGIN into an array for easy iteration in CORS middleware
-  const clientOrigins = data.CLIENT_ORIGIN.split(',').map((origin) => origin.trim());
+  // ✅ Build allowed origins from CLIENT_URL and PROCEEDINGS_URL
+  const allowedOrigins: string[] = [];
+
+  // Add from CLIENT_URL
+  if (data.CLIENT_URL) {
+    data.CLIENT_URL.split(',').forEach((origin) => {
+      const trimmed = origin.trim();
+      if (trimmed) allowedOrigins.push(trimmed);
+    });
+  }
+
+  // Add from PROCEEDINGS_URL
+  if (data.PROCEEDINGS_URL) {
+    data.PROCEEDINGS_URL.split(',').forEach((origin) => {
+      const trimmed = origin.trim();
+      if (trimmed) allowedOrigins.push(trimmed);
+    });
+  }
+
+  // ✅ Fallback: Add from CLIENT_ORIGIN for backward compatibility
+  if (data.CLIENT_ORIGIN) {
+    data.CLIENT_ORIGIN.split(',').forEach((origin) => {
+      const trimmed = origin.trim();
+      if (trimmed) allowedOrigins.push(trimmed);
+    });
+  }
+
+  // ✅ Remove duplicates
+  const uniqueOrigins = [...new Set(allowedOrigins)];
+
+  console.log('✅ Allowed CORS origins:', uniqueOrigins);
 
   return {
     ...data,
     ACCESS_TOKEN_SECRET: accessSecret,
     REFRESH_TOKEN_SECRET: refreshSecret,
-    CLIENT_ORIGINS: clientOrigins, // Handy array variant exported alongside raw string
+    ALLOWED_ORIGINS: uniqueOrigins, // ✅ Combined array for CORS
+    CLIENT_ORIGINS: uniqueOrigins, // ✅ Alias for backward compatibility
   };
 };
 

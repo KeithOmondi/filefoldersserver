@@ -17,23 +17,33 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Define allowed origins list
-const allowedOrigins = env.CLIENT_ORIGIN
-  ? env.CLIENT_ORIGIN.split(',').map((origin) => origin.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+// ✅ Use the combined allowed origins from env
+const allowedOrigins = env.ALLOWED_ORIGINS;
+
+console.log('✅ Allowed CORS origins:', allowedOrigins);
 
 // CORS Setup for Multiple Domains
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (e.g., Postman, mobile apps, curl)
-      if (!origin) return callback(null, true);
+      if (!origin) {
+        return callback(null, true);
+      }
 
+      // ✅ Check if origin is allowed
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
-      } else {
-        return callback(new Error(`CORS policy: ${origin} is not allowed by CORS`));
       }
+
+      // ✅ In development, allow all origins
+      if (env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+
+      // ✅ Log blocked origins for debugging
+      console.warn(`❌ CORS blocked: ${origin}`);
+      return callback(new Error(`CORS policy: ${origin} is not allowed by CORS`));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
