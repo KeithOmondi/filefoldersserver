@@ -26,6 +26,30 @@ import {
 } from './pendingProceedings.validation';
 import { PENDING_PROCEEDINGS_CATEGORIES } from './pendingProceedings.types';
 import { catchAsync } from '../../utils/catchasync';
+import { query } from '../../config/db';
+
+// ============================================================
+// Helper to get user from database
+// ============================================================
+
+const getUserFromDb = async (userId: string): Promise<{ fullName: string; email: string } | null> => {
+  try {
+    const result = await query(
+      `SELECT full_name, email FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (result.rows.length > 0) {
+      return {
+        fullName: result.rows[0].full_name || 'Unknown User',
+        email: result.rows[0].email || 'unknown@email.com',
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('❌ Error fetching user from DB:', error);
+    return null;
+  }
+};
 
 // ============================================================
 // CREATE SUBMISSION
@@ -35,31 +59,48 @@ export const createSubmissionController = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const validated = createSubmissionSchema.parse(req);
 
-    // ✅ Validate proceeding items with CORRECT category names
+    // Validate proceeding items
     const courtOfAppealValidation = validateProceedingItems(
       validated.body.courtOfAppeal,
-      'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
+      'Pending Proceedings to Court of Appeal'
     );
     if (!courtOfAppealValidation.valid) {
       throw new AppError(courtOfAppealValidation.errors.join('; '), 400);
     }
 
-    // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
     const subordinateCourtsValidation = validateProceedingItems(
       validated.body.subordinateCourts,
-      'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
+      'Pending Proceedings from Subordinate Courts'
     );
     if (!subordinateCourtsValidation.valid) {
       throw new AppError(subordinateCourtsValidation.errors.join('; '), 400);
     }
 
-    // ✅ Get user from request (assuming auth middleware adds user)
-    const authUser = req.user as { id: string; fullName: string; email: string } | undefined;
-    
+    // ✅ Get user from request
+    const authUser = req.user as { id: string; email?: string; role?: string } | undefined;
+
+    let userId = authUser?.id;
+    let fullName = 'Unknown User';
+    let email = authUser?.email || 'unknown@email.com';
+
+    // ✅ Fetch full user from database if userId exists
+    if (userId) {
+      const userFromDb = await getUserFromDb(userId);
+      if (userFromDb) {
+        fullName = userFromDb.fullName;
+        email = userFromDb.email || email;
+        console.log('✅ Fetched user from DB:', { userId, fullName, email });
+      } else {
+        console.warn('⚠️ User not found in DB:', userId);
+      }
+    }
+
+    console.log('📤 Creating submission with:', { userId, fullName, email });
+
     const submission = await createSubmission(
       validated.body,
-      authUser?.id,
-      authUser ? { fullName: authUser.fullName, email: authUser.email } : undefined
+      userId,
+      { fullName, email }
     );
 
     res.status(201).json({
@@ -84,7 +125,7 @@ export const updateSubmissionController = catchAsync(
     if (validated.body.courtOfAppeal) {
       const validation = validateProceedingItems(
         validated.body.courtOfAppeal,
-        'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
+        'Pending Proceedings to Court of Appeal'
       );
       if (!validation.valid) {
         throw new AppError(validation.errors.join('; '), 400);
@@ -92,10 +133,9 @@ export const updateSubmissionController = catchAsync(
     }
 
     if (validated.body.subordinateCourts) {
-      // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
       const validation = validateProceedingItems(
         validated.body.subordinateCourts,
-        'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
+        'Pending Proceedings from Subordinate Courts'
       );
       if (!validation.valid) {
         throw new AppError(validation.errors.join('; '), 400);
@@ -348,7 +388,22 @@ export const bulkUpsertSubmissionsController = catchAsync(
     }
 
     // ✅ Get user from request
-    const authUser = req.user as { id: string; fullName: string; email: string } | undefined;
+    const authUser = req.user as { id: string; email?: string; role?: string } | undefined;
+    const userId = authUser?.id;
+    let fullName = 'Unknown User';
+    let email = authUser?.email || 'unknown@email.com';
+
+    // ✅ Fetch full user from database if userId exists
+    if (userId) {
+      const userFromDb = await getUserFromDb(userId);
+      if (userFromDb) {
+        fullName = userFromDb.fullName;
+        email = userFromDb.email || email;
+        console.log('✅ Fetched user from DB for bulk:', { userId, fullName, email });
+      } else {
+        console.warn('⚠️ User not found in DB for bulk:', userId);
+      }
+    }
 
     const results = [];
     const errors = [];
@@ -358,7 +413,7 @@ export const bulkUpsertSubmissionsController = catchAsync(
         // Validate proceeding items
         const courtOfAppealValidation = validateProceedingItems(
           submission.courtOfAppeal || [],
-          'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
+          'Pending Proceedings to Court of Appeal'
         );
         if (!courtOfAppealValidation.valid) {
           errors.push({
@@ -368,10 +423,9 @@ export const bulkUpsertSubmissionsController = catchAsync(
           continue;
         }
 
-        // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
         const subordinateCourtsValidation = validateProceedingItems(
           submission.subordinateCourts || [],
-          'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
+          'Pending Proceedings from Subordinate Courts'
         );
         if (!subordinateCourtsValidation.valid) {
           errors.push({
@@ -386,20 +440,22 @@ export const bulkUpsertSubmissionsController = catchAsync(
 
         let result;
         if (existing) {
+          // Update
           result = await updateSubmission(submission.id, {
             station: submission.station,
             courtOfAppeal: submission.courtOfAppeal,
             subordinateCourts: submission.subordinateCourts,
           });
         } else {
+          // Create
           result = await createSubmission(
             {
               station: submission.station,
               courtOfAppeal: submission.courtOfAppeal || [],
               subordinateCourts: submission.subordinateCourts || [],
             },
-            authUser?.id,
-            authUser ? { fullName: authUser.fullName, email: authUser.email } : undefined
+            userId,
+            { fullName, email }
           );
         }
 
