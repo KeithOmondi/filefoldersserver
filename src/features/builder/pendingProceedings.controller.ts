@@ -93,7 +93,7 @@ export const updateSubmissionController = catchAsync(
     if (validated.body.subordinateCourts) {
       const validation = validateProceedingItems(
         validated.body.subordinateCourts,
-        'Pending Proceedings to Subordinate Courts'
+        'Pending Proceedings from Subordinate Courts'
       );
       if (!validation.valid) {
         throw new AppError(validation.errors.join('; '), 400);
@@ -371,7 +371,7 @@ export const bulkUpsertSubmissionsController = catchAsync(
 
         const subordinateCourtsValidation = validateProceedingItems(
           submission.subordinateCourts || [],
-          'Pending Proceedings to Subordinate Courts'
+          'Pending Proceedings from Subordinate Courts'
         );
         if (!subordinateCourtsValidation.valid) {
           errors.push({

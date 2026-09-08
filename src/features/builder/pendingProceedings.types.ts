@@ -230,7 +230,7 @@ export const PENDING_PROCEEDINGS_CATEGORIES = {
     "Criminal",
     "Succession"
   ],
-  "Pending Proceedings to Subordinate Courts": [
+  "Pending Proceedings from Subordinate Courts": [
     "Civil",
     "Criminal",
     "Succession"
