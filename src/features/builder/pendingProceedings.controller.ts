@@ -35,18 +35,19 @@ export const createSubmissionController = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const validated = createSubmissionSchema.parse(req);
 
-    // Validate proceeding items
+    // ✅ Validate proceeding items with CORRECT category names
     const courtOfAppealValidation = validateProceedingItems(
       validated.body.courtOfAppeal,
-      'Pending Proceedings to Court of Appeal'
+      'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
     );
     if (!courtOfAppealValidation.valid) {
       throw new AppError(courtOfAppealValidation.errors.join('; '), 400);
     }
 
+    // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
     const subordinateCourtsValidation = validateProceedingItems(
       validated.body.subordinateCourts,
-      'Pending Proceedings to Subordinate Courts'
+      'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
     );
     if (!subordinateCourtsValidation.valid) {
       throw new AppError(subordinateCourtsValidation.errors.join('; '), 400);
@@ -83,7 +84,7 @@ export const updateSubmissionController = catchAsync(
     if (validated.body.courtOfAppeal) {
       const validation = validateProceedingItems(
         validated.body.courtOfAppeal,
-        'Pending Proceedings to Court of Appeal'
+        'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
       );
       if (!validation.valid) {
         throw new AppError(validation.errors.join('; '), 400);
@@ -91,9 +92,10 @@ export const updateSubmissionController = catchAsync(
     }
 
     if (validated.body.subordinateCourts) {
+      // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
       const validation = validateProceedingItems(
         validated.body.subordinateCourts,
-        'Pending Proceedings from Subordinate Courts'
+        'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
       );
       if (!validation.valid) {
         throw new AppError(validation.errors.join('; '), 400);
@@ -105,11 +107,10 @@ export const updateSubmissionController = catchAsync(
       validated.body
     );
 
-    // ✅ Fix: Return data as { submission: submission }
     res.status(200).json({
       success: true,
       data: {
-        submission: submission  // ✅ Wrap in submission object
+        submission: submission
       },
       message: 'Submission updated successfully',
     });
@@ -126,11 +127,10 @@ export const getSubmissionController = catchAsync(
 
     const submission = await getSubmissionById(validated.params.id);
 
-    // ✅ Fix: Return data as { submission: submission }
     res.status(200).json({
       success: true,
       data: {
-        submission: submission  // ✅ Wrap in submission object
+        submission: submission
       },
     });
   }
@@ -146,7 +146,6 @@ export const getSubmissionsController = catchAsync(
 
     const result = await getSubmissions(validated.query);
 
-    // ✅ This one is already correct - returns submissions array directly
     res.status(200).json({
       success: true,
       data: {
@@ -213,7 +212,7 @@ export const getSubmissionStatsController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        stats: stats,  // ✅ Wrap in stats object
+        stats: stats,
       },
     });
   }
@@ -232,7 +231,7 @@ export const getAdminDashboardController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        data: stats,  // ✅ Wrap in data object
+        data: stats,
       },
     });
   }
@@ -251,11 +250,10 @@ export const downloadReportController = catchAsync(
     const reportData = await generateReportData(fromDate, toDate);
 
     if (format === 'pdf') {
-      // Generate PDF (implement with your PDF library of choice)
       res.status(200).json({
         success: true,
         data: {
-          data: reportData,  // ✅ Wrap in data object
+          data: reportData,
           format: 'pdf',
         },
         message: 'PDF generation not implemented yet',
@@ -264,17 +262,16 @@ export const downloadReportController = catchAsync(
       res.status(200).json({
         success: true,
         data: {
-          data: reportData,  // ✅ Wrap in data object
+          data: reportData,
           format: 'docx',
         },
         message: 'DOCX generation not implemented yet',
       });
     } else {
-      // Default to JSON
       res.status(200).json({
         success: true,
         data: {
-          data: reportData,  // ✅ Wrap in data object
+          data: reportData,
           format: 'json',
         },
       });
@@ -296,7 +293,7 @@ export const getCategoriesController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        data: categories,  // ✅ Wrap in data object
+        data: categories,
       },
     });
   }
@@ -308,7 +305,6 @@ export const getCategoriesController = catchAsync(
 
 export const getItemsByCategoryController = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    // Ensure category is a string (not string[])
     const category = Array.isArray(req.params.category) 
       ? req.params.category[0] 
       : req.params.category;
@@ -330,7 +326,7 @@ export const getItemsByCategoryController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        data: {  // ✅ Wrap in data object
+        data: {
           category,
           items,
         },
@@ -351,6 +347,9 @@ export const bulkUpsertSubmissionsController = catchAsync(
       throw new AppError('Submissions array is required and must not be empty', 400);
     }
 
+    // ✅ Get user from request
+    const authUser = req.user as { id: string; fullName: string; email: string } | undefined;
+
     const results = [];
     const errors = [];
 
@@ -359,7 +358,7 @@ export const bulkUpsertSubmissionsController = catchAsync(
         // Validate proceeding items
         const courtOfAppealValidation = validateProceedingItems(
           submission.courtOfAppeal || [],
-          'Pending Proceedings to Court of Appeal'
+          'Pending Proceedings to Court of Appeal'  // ✅ Correct - "to"
         );
         if (!courtOfAppealValidation.valid) {
           errors.push({
@@ -369,9 +368,10 @@ export const bulkUpsertSubmissionsController = catchAsync(
           continue;
         }
 
+        // ✅ FIXED: Changed from "Pending Proceedings to Subordinate Courts" to "Pending Proceedings from Subordinate Courts"
         const subordinateCourtsValidation = validateProceedingItems(
           submission.subordinateCourts || [],
-          'Pending Proceedings from Subordinate Courts'
+          'Pending Proceedings from Subordinate Courts'  // ✅ Correct - "from"
         );
         if (!subordinateCourtsValidation.valid) {
           errors.push({
@@ -386,19 +386,21 @@ export const bulkUpsertSubmissionsController = catchAsync(
 
         let result;
         if (existing) {
-          // Update
           result = await updateSubmission(submission.id, {
             station: submission.station,
             courtOfAppeal: submission.courtOfAppeal,
             subordinateCourts: submission.subordinateCourts,
           });
         } else {
-          // Create
-          result = await createSubmission({
-            station: submission.station,
-            courtOfAppeal: submission.courtOfAppeal || [],
-            subordinateCourts: submission.subordinateCourts || [],
-          });
+          result = await createSubmission(
+            {
+              station: submission.station,
+              courtOfAppeal: submission.courtOfAppeal || [],
+              subordinateCourts: submission.subordinateCourts || [],
+            },
+            authUser?.id,
+            authUser ? { fullName: authUser.fullName, email: authUser.email } : undefined
+          );
         }
 
         results.push(result);
@@ -413,7 +415,7 @@ export const bulkUpsertSubmissionsController = catchAsync(
     res.status(200).json({
       success: true,
       data: {
-        data: {  // ✅ Wrap in data object
+        data: {
           results,
           errors,
           summary: {

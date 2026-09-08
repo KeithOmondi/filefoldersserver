@@ -82,7 +82,6 @@ export const updateSubmissionSchema = z.object({
           path: ['body'],
         });
       }
-      // If updating courtOfAppeal or subordinateCourts, validate they have items
       if (data.courtOfAppeal !== undefined && data.courtOfAppeal.length === 0 && 
           data.subordinateCourts !== undefined && data.subordinateCourts.length === 0) {
         ctx.addIssue({
@@ -203,6 +202,14 @@ export const getAdminDashboardSchema = z.object({
 // 11. DOMAIN VALIDATION HELPERS
 // ============================================================
 
+// ✅ Valid category names - appeal "to", subordinate "from"
+const VALID_CATEGORIES = [
+  'Pending Proceedings to Court of Appeal',
+  'Pending Proceedings from Subordinate Courts'
+] as const;
+
+type ValidCategory = typeof VALID_CATEGORIES[number];
+
 /**
  * Validates that a proceeding item belongs to a valid category
  */
@@ -210,16 +217,24 @@ export const validateProceedingCategory = (
   category: string,
   itemName: string
 ): { valid: boolean; error?: string } => {
-  const categories = Object.keys(PENDING_PROCEEDINGS_CATEGORIES) as PendingProceedingCategory[];
-  
-  if (!categories.includes(category as PendingProceedingCategory)) {
+  // ✅ Check if category is valid
+  if (!VALID_CATEGORIES.includes(category as ValidCategory)) {
     return {
       valid: false,
-      error: `Invalid category: "${category}". Must be one of: ${categories.join(', ')}`,
+      error: `Invalid category: "${category}". Must be one of: ${VALID_CATEGORIES.join(', ')}`,
     };
   }
 
+  // ✅ Get valid items for this category
   const validItems = PENDING_PROCEEDINGS_CATEGORIES[category as PendingProceedingCategory];
+  
+  if (!validItems) {
+    return {
+      valid: false,
+      error: `Invalid category: "${category}"`,
+    };
+  }
+
   if (!validItems.includes(itemName as PendingProceedingName)) {
     return {
       valid: false,
@@ -253,7 +268,6 @@ export const validateAllProceedingItems = (
  * Validates that a station name is valid (to be implemented with station service)
  */
 export const validateStation = (station: string): boolean => {
-  // Placeholder - actual implementation will check against station list
   return station.length > 0;
 };
 

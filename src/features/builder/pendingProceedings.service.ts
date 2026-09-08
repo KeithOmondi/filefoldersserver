@@ -86,8 +86,6 @@ const mapSummaryRow = (row: DbRow): StationRequirementSummary => ({
 const getStationList = async (): Promise<string[]> => {
   const result = await query(`SELECT DISTINCT station FROM pending_proceedings_submissions ORDER BY station`);
   if (result.rows.length === 0) {
-    // If no submissions exist, return default stations
-    // In production, this would come from a stations table
     return ['Station 1', 'Station 2', 'Station 3'];
   }
   return result.rows.map((row) => String(row.station));
@@ -335,10 +333,8 @@ export const getStationReport = async (
   const { status, fromDate, toDate, page = 1, limit = 20 } = queryParams;
   const offset = (page - 1) * limit;
 
-  // Get all stations (from submissions table)
   const allStations = await getStationList();
 
-  // Get submissions with optional filters
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -357,7 +353,6 @@ export const getStationReport = async (
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  // Get latest submission per station
   const submissionsResult = await query(
     `SELECT DISTINCT ON (station) * 
      FROM pending_proceedings_submissions 
@@ -368,10 +363,8 @@ export const getStationReport = async (
 
   const submissions = submissionsResult.rows.map(mapSubmissionRow);
 
-  // Build station status objects
   let stationStatuses: StationSubmissionStatus[] = [];
 
-  // Filter by status if provided
   let filteredSubmissions = submissions;
   if (status) {
     filteredSubmissions = submissions.filter((sub) => determineStationStatus(sub) === status);
@@ -381,7 +374,6 @@ export const getStationReport = async (
     const submission = submissions.find((s) => s.station === station);
     const subStatus = determineStationStatus(submission);
 
-    // Skip if status filter doesn't match
     if (status && subStatus !== status) continue;
 
     const progress = getStationProgress(submission);
@@ -398,21 +390,9 @@ export const getStationReport = async (
     });
   }
 
-  // Paginate
   const total = stationStatuses.length;
   stationStatuses = stationStatuses.slice(offset, offset + limit);
 
-  // Calculate summary
-  const statusCounts: Record<StationStatus, number> = {
-    not_started: 0,
-    submitted: 0,
-  };
-
-  for (const ss of stationStatuses) {
-    statusCounts[ss.status] = (statusCounts[ss.status] || 0) + 1;
-  }
-
-  // Calculate counts for all stations (not just paginated)
   const allStatusCounts: Record<StationStatus, number> = {
     not_started: 0,
     submitted: 0,
@@ -452,7 +432,6 @@ export const getStationReport = async (
 export const getSubmissionStats = async (): Promise<SubmissionStats> => {
   const allStations = await getStationList();
 
-  // Get latest submission per station
   const result = await query(
     `SELECT DISTINCT ON (station) * FROM pending_proceedings_submissions ORDER BY station, updated_at DESC`
   );
@@ -500,14 +479,12 @@ export const getAdminDashboardStats = async (): Promise<{
 }> => {
   const stats = await getSubmissionStats();
 
-  // Get today's submissions
   const todayResult = await query(
     `SELECT COUNT(*) as count FROM pending_proceedings_submissions 
      WHERE submitted_at::date = CURRENT_DATE`
   );
   const submissionsToday = parseInt(String(todayResult.rows[0]?.count ?? '0'), 10);
 
-  // Get recent activity
   const recentResult = await query(
     `SELECT id, station, 'submitted' as action, submitted_at as timestamp, 
             COALESCE(submitter_name, 'Unknown') as user
@@ -560,7 +537,6 @@ export const generateReportData = async (
 
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  // Get latest submission per station
   const result = await query(
     `SELECT DISTINCT ON (station) 
        id, station, court_of_appeal, subordinate_courts, status, 
@@ -586,7 +562,6 @@ export const generateReportData = async (
     };
   });
 
-  // Get all stations
   const allStations = await getStationList();
 
   const rows: ReportRow[] = [];
@@ -631,19 +606,37 @@ export const generateReportData = async (
 // VALIDATION HELPERS
 // ============================================================
 
+// ✅ Normalize category names (support both old and new during transition)
+const normalizeCategory = (category: string): string => {
+  const categoryMap: Record<string, string> = {
+    'Pending Proceedings to Subordinate Courts': 'Pending Proceedings from Subordinate Courts',
+  };
+  return categoryMap[category] || category;
+};
+
 export const validateProceedingItems = (
   items: PendingProceedingItem[],
   category: string
 ): { valid: boolean; errors: string[] } => {
   const errors: string[] = [];
+  
+  // ✅ Normalize the category name
+  const normalizedCategory = normalizeCategory(category);
+  
   const validCategories = Object.keys(PENDING_PROCEEDINGS_CATEGORIES);
 
-  if (!validCategories.includes(category)) {
-    errors.push(`Invalid category: "${category}". Must be one of: ${validCategories.join(', ')}`);
-    return { valid: false, errors };
+  if (!validCategories.includes(normalizedCategory)) {
+    // ✅ Also check against original category (for backward compatibility)
+    if (validCategories.includes(category)) {
+      // Original category is valid, continue
+    } else {
+      errors.push(`Invalid category: "${category}". Must be one of: ${validCategories.join(', ')}`);
+      return { valid: false, errors };
+    }
   }
 
-  const validNames = PENDING_PROCEEDINGS_CATEGORIES[category as keyof typeof PENDING_PROCEEDINGS_CATEGORIES];
+  // ✅ Use the normalized category to get valid names
+  const validNames = PENDING_PROCEEDINGS_CATEGORIES[normalizedCategory as keyof typeof PENDING_PROCEEDINGS_CATEGORIES];
 
   for (const item of items) {
     if (!item.division?.trim()) {
@@ -652,6 +645,7 @@ export const validateProceedingItems = (
     if (!item.name?.trim()) {
       errors.push(`Name is required for item in division "${item.division}"`);
     }
+    // ✅ Check against valid names using the normalized category
     if (!validNames.includes(item.name as any)) {
       errors.push(`Invalid name "${item.name}" for category "${category}". Must be one of: ${validNames.join(', ')}`);
     }

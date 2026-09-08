@@ -1,12 +1,5 @@
 // Types for the Pending Proceedings Form
 // Based strictly on the official case categories document
-// CHANGES: 
-// - removed all "quarter" fields
-// - "quantity" on each item = how many of that file/register are needed
-// - Only track Submitted status (no draft, no pending approval)
-// - Added email tracking fields
-// - Added station tracking for admin dashboard
-// - Restructured for Pending Proceedings to Court of Appeal and Subordinate Courts
 
 // ============================================
 // Core Types
@@ -15,18 +8,18 @@
 export interface PendingProceedingItem {
   division: string;
   name: string;
-  quantity: number; // how many needed, e.g. 1, 2, 3...
+  quantity: number;
 }
 
 export type SubmissionStatus = 'submitted';
 
 // ============================================
-// Station Types (for admin tracking)
+// Station Types
 // ============================================
 
 export type StationStatus = 
-  | 'not_started'     // No submission exists for this station
-  | 'submitted';      // Has been submitted
+  | 'not_started'
+  | 'submitted';
 
 export interface StationSubmissionStatus {
   station: string;
@@ -54,6 +47,10 @@ export interface StationReport {
     completionRate: number;
   };
 }
+
+// ============================================
+// Submission Types
+// ============================================
 
 export interface StationRequirementSubmission {
   id?: string;
@@ -83,7 +80,7 @@ export interface StationRequirementSummary {
 }
 
 // ============================================
-// Input Types for API Endpoints
+// Input Types
 // ============================================
 
 export interface CreateSubmissionInput {
@@ -117,7 +114,7 @@ export interface GetStationReportQuery {
 }
 
 // ============================================
-// Report Download Types
+// Report Types
 // ============================================
 
 export type ReportFormat = 'pdf' | 'docx';
@@ -222,6 +219,7 @@ export interface SubmissionStats {
 
 // ============================================
 // PENDING PROCEEDINGS CATEGORIES
+// ✅ appeal = "to", subordinate = "from"
 // ============================================
 
 export const PENDING_PROCEEDINGS_CATEGORIES = {
@@ -238,14 +236,14 @@ export const PENDING_PROCEEDINGS_CATEGORIES = {
 } as const;
 
 // ============================================
-// Type definitions
+// Type Definitions
 // ============================================
 
 export type PendingProceedingCategory = keyof typeof PENDING_PROCEEDINGS_CATEGORIES;
 export type PendingProceedingName = typeof PENDING_PROCEEDINGS_CATEGORIES[PendingProceedingCategory][number];
 
 // ============================================
-// Helper functions
+// Helper Functions - Categories
 // ============================================
 
 export const PENDING_PROCEEDINGS_CATEGORIES_LIST = Object.keys(PENDING_PROCEEDINGS_CATEGORIES) as PendingProceedingCategory[];
@@ -271,7 +269,7 @@ export function getAllPendingProceedings(): { category: PendingProceedingCategor
 }
 
 // ============================================
-// Helper Functions
+// Helper Functions - Submissions
 // ============================================
 
 export function getSubmissionStatusText(status: SubmissionStatus): string {
@@ -297,7 +295,7 @@ export function calculateTotals(submission: StationRequirementSubmission): {
 }
 
 // ============================================
-// Admin Dashboard Helper Functions
+// Helper Functions - Admin Dashboard
 // ============================================
 
 export function getStationStatusText(status: StationStatus): string {
@@ -345,14 +343,13 @@ export function determineStationStatus(
 }
 
 // ============================================
-// Submission Statistics Helper
+// Helper Functions - Statistics
 // ============================================
 
 export function getSubmissionStats(
   allStations: string[],
   submissions: StationRequirementSubmission[]
 ): SubmissionStats {
-  // Get latest submission per station
   const latestByStation = new Map<string, StationRequirementSubmission>();
   
   for (const sub of submissions) {
@@ -367,7 +364,6 @@ export function getSubmissionStats(
 
   for (const station of allStations) {
     const submission = latestByStation.get(station);
-    
     if (!submission) {
       notStarted++;
     } else {
@@ -384,7 +380,7 @@ export function getSubmissionStats(
 }
 
 // ============================================
-// Report Helper Functions
+// Helper Functions - Reports
 // ============================================
 
 export function generateReportSummary(
