@@ -20,7 +20,8 @@ const stationStatusSchema = z.enum([
   'submitted'
 ]);
 
-const reportFormatSchema = z.enum(['pdf', 'docx']);
+// ✅ Added 'json' to report format
+const reportFormatSchema = z.enum(['pdf', 'docx', 'json']);
 
 // ============================================================
 // 2. PENDING PROCEEDING ITEM SCHEMA

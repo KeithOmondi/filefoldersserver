@@ -117,7 +117,7 @@ export interface GetStationReportQuery {
 // Report Types
 // ============================================
 
-export type ReportFormat = 'pdf' | 'docx';
+export type ReportFormat = 'pdf' | 'docx' | 'json';
 
 export interface DownloadReportQuery {
   format?: ReportFormat;
@@ -398,4 +398,30 @@ export function generateReportSummary(
     totalSubordinateCourts: 0,
     completionRate: totalStations > 0 ? Math.round((submitted / totalStations) * 100) : 0,
   };
+}
+
+// ============================================
+// Helper Functions - Report Generation
+// ============================================
+
+export function formatReportDate(date: string | Date): string {
+  if (!date) return 'N/A';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
+export function formatReportDateTime(date: string | Date): string {
+  if (!date) return 'N/A';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }

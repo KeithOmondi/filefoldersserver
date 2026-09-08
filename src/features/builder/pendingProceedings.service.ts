@@ -511,9 +511,9 @@ export const getAdminDashboardStats = async (): Promise<{
   };
 };
 
-// ============================================================
-// DOWNLOAD REPORT
-// ============================================================
+// services/pendingProceedings.service.ts
+
+// Only update the generateReportData function - everything else stays the same
 
 export const generateReportData = async (
   fromDate?: string,
@@ -551,6 +551,12 @@ export const generateReportData = async (
     values
   );
 
+  // Get all stations from users table
+  const stationsResult = await query(
+    `SELECT DISTINCT station FROM users WHERE is_active = true AND station IS NOT NULL AND station != '' ORDER BY station`
+  );
+  const allStations = stationsResult.rows.map((row) => String(row.station));
+
   const submissions = result.rows.map((row) => {
     const sub = mapSubmissionRow(row);
     const totals = calculateTotals(sub);
@@ -561,8 +567,6 @@ export const generateReportData = async (
       totalItems: totals.totalItems,
     };
   });
-
-  const allStations = await getStationList();
 
   const rows: ReportRow[] = [];
   let totalCourtOfAppeal = 0;
