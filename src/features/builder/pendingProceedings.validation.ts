@@ -41,7 +41,16 @@ const validatePendingProceedings = (
   data: { courtOfAppeal: PendingProceedingItem[]; subordinateCourts: PendingProceedingItem[] },
   ctx: z.RefinementCtx
 ) => {
-  // Check that at least one proceeding item exists
+  // ✅ Allow nil returns - users can submit with all zeros
+  // This confirms they have reviewed and have no pending proceedings
+  const isNilReturn = data.courtOfAppeal.length === 0 && data.subordinateCourts.length === 0;
+  
+  // ✅ Nil returns are allowed - they will be tracked in reports
+  if (isNilReturn) {
+    return;
+  }
+  
+  // Only require at least one item if it's not a nil return
   if (data.courtOfAppeal.length === 0 && data.subordinateCourts.length === 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -83,14 +92,7 @@ export const updateSubmissionSchema = z.object({
           path: ['body'],
         });
       }
-      if (data.courtOfAppeal !== undefined && data.courtOfAppeal.length === 0 && 
-          data.subordinateCourts !== undefined && data.subordinateCourts.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'At least one proceeding item must be provided',
-          path: ['courtOfAppeal'],
-        });
-      }
+      // ✅ Allow nil returns on update - no validation error for empty arrays
     }),
 });
 
