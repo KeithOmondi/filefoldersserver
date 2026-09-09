@@ -22,6 +22,8 @@ import {
   calculateTotals,
   determineStationStatus,
   getStationProgress,
+  isNilReturn,
+  isRowNilReturn,
 } from './pendingProceedings.types';
 
 type DbRow = Record<string, unknown>;
@@ -83,11 +85,11 @@ const mapSummaryRow = (row: DbRow): StationRequirementSummary => ({
 // Helper Functions
 // ============================================================
 
-const getStationList = async (): Promise<string[]> => {
-  const result = await query(`SELECT DISTINCT station FROM pending_proceedings_submissions ORDER BY station`);
-  if (result.rows.length === 0) {
-    return ['Station 1', 'Station 2', 'Station 3'];
-  }
+// ✅ Get all stations from users table
+const getAllStationsFromUsers = async (): Promise<string[]> => {
+  const result = await query(
+    `SELECT DISTINCT station FROM users WHERE is_active = true AND station IS NOT NULL AND station != '' ORDER BY station`
+  );
   return result.rows.map((row) => String(row.station));
 };
 
@@ -333,7 +335,7 @@ export const getStationReport = async (
   const { status, fromDate, toDate, page = 1, limit = 20 } = queryParams;
   const offset = (page - 1) * limit;
 
-  const allStations = await getStationList();
+  const allStations = await getAllStationsFromUsers();
 
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -364,11 +366,6 @@ export const getStationReport = async (
   const submissions = submissionsResult.rows.map(mapSubmissionRow);
 
   let stationStatuses: StationSubmissionStatus[] = [];
-
-  let filteredSubmissions = submissions;
-  if (status) {
-    filteredSubmissions = submissions.filter((sub) => determineStationStatus(sub) === status);
-  }
 
   for (const station of allStations) {
     const submission = submissions.find((s) => s.station === station);
@@ -430,7 +427,7 @@ export const getStationReport = async (
 // ============================================================
 
 export const getSubmissionStats = async (): Promise<SubmissionStats> => {
-  const allStations = await getStationList();
+  const allStations = await getAllStationsFromUsers();
 
   const result = await query(
     `SELECT DISTINCT ON (station) * FROM pending_proceedings_submissions ORDER BY station, updated_at DESC`
@@ -440,11 +437,15 @@ export const getSubmissionStats = async (): Promise<SubmissionStats> => {
 
   let submitted = 0;
   let notStarted = 0;
+  let nilReturnCount = 0;
 
   for (const station of allStations) {
     const submission = submissions.find((s) => s.station === station);
     if (submission) {
       submitted++;
+      if (isNilReturn(submission)) {
+        nilReturnCount++;
+      }
     } else {
       notStarted++;
     }
@@ -455,6 +456,7 @@ export const getSubmissionStats = async (): Promise<SubmissionStats> => {
     submitted,
     notSubmitted: notStarted,
     notStarted,
+    nilReturnCount,
   };
 };
 
@@ -467,6 +469,7 @@ export const getAdminDashboardStats = async (): Promise<{
   submissionsToday: number;
   submittedCount: number;
   notStartedCount: number;
+  nilReturnCount: number;
   completionRate: number;
   recentActivity: Array<{
     id: string;
@@ -506,14 +509,15 @@ export const getAdminDashboardStats = async (): Promise<{
     submissionsToday,
     submittedCount: stats.submitted,
     notStartedCount: stats.notStarted,
+    nilReturnCount: stats.nilReturnCount || 0,
     completionRate: stats.totalStations > 0 ? Math.round((stats.submitted / stats.totalStations) * 100) : 0,
     recentActivity,
   };
 };
 
-// services/pendingProceedings.service.ts
-
-// Only update the generateReportData function - everything else stays the same
+// ============================================================
+// DOWNLOAD REPORT
+// ============================================================
 
 export const generateReportData = async (
   fromDate?: string,
@@ -552,25 +556,25 @@ export const generateReportData = async (
   );
 
   // Get all stations from users table
-  const stationsResult = await query(
-    `SELECT DISTINCT station FROM users WHERE is_active = true AND station IS NOT NULL AND station != '' ORDER BY station`
-  );
-  const allStations = stationsResult.rows.map((row) => String(row.station));
+  const allStations = await getAllStationsFromUsers();
 
   const submissions = result.rows.map((row) => {
     const sub = mapSubmissionRow(row);
     const totals = calculateTotals(sub);
+    const isNil = isNilReturn(sub);
     return {
       ...sub,
       courtOfAppealTotal: Number(row.court_of_appeal_total || 0),
       subordinateCourtsTotal: Number(row.subordinate_courts_total || 0),
       totalItems: totals.totalItems,
+      isNilReturn: isNil,
     };
   });
 
   const rows: ReportRow[] = [];
   let totalCourtOfAppeal = 0;
   let totalSubordinateCourts = 0;
+  let nilReturnCount = 0;
 
   for (const station of allStations) {
     const sub = submissions.find((s) => s.station === station);
@@ -579,6 +583,9 @@ export const generateReportData = async (
     if (sub) {
       totalCourtOfAppeal += sub.courtOfAppealTotal;
       totalSubordinateCourts += sub.subordinateCourtsTotal;
+      if (sub.isNilReturn) {
+        nilReturnCount++;
+      }
     }
 
     rows.push({
@@ -589,6 +596,7 @@ export const generateReportData = async (
       'Court of Appeal Items': sub?.courtOfAppealTotal || 0,
       'Subordinate Courts Items': sub?.subordinateCourtsTotal || 0,
       'Total Items': sub?.totalItems || 0,
+      'Nil Return': sub?.isNilReturn || false,
       'Submitted At': sub?.submittedAt || 'N/A',
       'Last Updated': sub?.updatedAt || 'N/A',
     });
@@ -601,6 +609,7 @@ export const generateReportData = async (
     totalCourtOfAppeal,
     totalSubordinateCourts,
     completionRate: allStations.length > 0 ? Math.round((submissions.length / allStations.length) * 100) : 0,
+    nilReturnCount,
   };
 
   return { rows, summary };
@@ -624,13 +633,10 @@ export const validateProceedingItems = (
 ): { valid: boolean; errors: string[] } => {
   const errors: string[] = [];
   
-  // ✅ Normalize the category name
   const normalizedCategory = normalizeCategory(category);
-  
   const validCategories = Object.keys(PENDING_PROCEEDINGS_CATEGORIES);
 
   if (!validCategories.includes(normalizedCategory)) {
-    // ✅ Also check against original category (for backward compatibility)
     if (validCategories.includes(category)) {
       // Original category is valid, continue
     } else {
@@ -639,7 +645,6 @@ export const validateProceedingItems = (
     }
   }
 
-  // ✅ Use the normalized category to get valid names
   const validNames = PENDING_PROCEEDINGS_CATEGORIES[normalizedCategory as keyof typeof PENDING_PROCEEDINGS_CATEGORIES];
 
   for (const item of items) {
@@ -649,7 +654,6 @@ export const validateProceedingItems = (
     if (!item.name?.trim()) {
       errors.push(`Name is required for item in division "${item.division}"`);
     }
-    // ✅ Check against valid names using the normalized category
     if (!validNames.includes(item.name as any)) {
       errors.push(`Invalid name "${item.name}" for category "${category}". Must be one of: ${validNames.join(', ')}`);
     }

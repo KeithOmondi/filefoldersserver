@@ -133,6 +133,7 @@ export interface ReportRow {
   'Court of Appeal Items': number;
   'Subordinate Courts Items': number;
   'Total Items': number;
+  'Nil Return': boolean;  // ✅ Added: indicates if station returned nil (all zeros)
   'Submitted At': string;
   'Last Updated': string;
 }
@@ -144,6 +145,7 @@ export interface ReportSummary {
   totalCourtOfAppeal: number;
   totalSubordinateCourts: number;
   completionRate: number;
+  nilReturnCount: number;  // ✅ Added: count of stations that returned nil
 }
 
 export interface ReportData {
@@ -195,6 +197,7 @@ export interface AdminDashboardStats {
   submittedCount: number;
   notStartedCount: number;
   completionRate: number;
+  nilReturnCount: number;  // ✅ Added: count of stations that returned nil
   recentActivity: Array<{
     id: string;
     station: string;
@@ -215,6 +218,7 @@ export interface SubmissionStats {
   submitted: number;
   notSubmitted: number;
   notStarted: number;
+  nilReturnCount: number;  // ✅ Added: count of stations that returned nil
 }
 
 // ============================================
@@ -294,6 +298,18 @@ export function calculateTotals(submission: StationRequirementSubmission): {
   };
 }
 
+// ✅ Helper to check if a submission is a nil return (all zeros)
+export function isNilReturn(submission: StationRequirementSubmission): boolean {
+  const courtOfAppealTotal = submission.courtOfAppeal.reduce((sum, item) => sum + item.quantity, 0);
+  const subordinateCourtsTotal = submission.subordinateCourts.reduce((sum, item) => sum + item.quantity, 0);
+  return courtOfAppealTotal === 0 && subordinateCourtsTotal === 0;
+}
+
+// ✅ Helper to check if a report row is a nil return
+export function isRowNilReturn(row: ReportRow): boolean {
+  return row['Court of Appeal Items'] === 0 && row['Subordinate Courts Items'] === 0;
+}
+
 // ============================================
 // Helper Functions - Admin Dashboard
 // ============================================
@@ -361,6 +377,7 @@ export function getSubmissionStats(
 
   let submitted = 0;
   let notStarted = 0;
+  let nilReturnCount = 0;
 
   for (const station of allStations) {
     const submission = latestByStation.get(station);
@@ -368,6 +385,9 @@ export function getSubmissionStats(
       notStarted++;
     } else {
       submitted++;
+      if (isNilReturn(submission)) {
+        nilReturnCount++;
+      }
     }
   }
 
@@ -376,6 +396,7 @@ export function getSubmissionStats(
     submitted,
     notSubmitted: notStarted,
     notStarted,
+    nilReturnCount,
   };
 }
 
@@ -389,6 +410,7 @@ export function generateReportSummary(
 ): ReportSummary {
   const submitted = statusCounts['submitted'] || 0;
   const notSubmitted = statusCounts['not_submitted'] || 0;
+  const nilReturnCount = statusCounts['nil_return'] || 0;
 
   return {
     totalStations,
@@ -397,6 +419,7 @@ export function generateReportSummary(
     totalCourtOfAppeal: 0,
     totalSubordinateCourts: 0,
     completionRate: totalStations > 0 ? Math.round((submitted / totalStations) * 100) : 0,
+    nilReturnCount,
   };
 }
 

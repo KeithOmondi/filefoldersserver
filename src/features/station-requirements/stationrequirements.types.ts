@@ -9,6 +9,7 @@
 // - Added comprehensive register categories for all case types
 // - Added report download types (PDF and DOCX)
 // - Simplified to only track Submitted vs Not Submitted
+// - Added nil return field for tracking returns
 
 // ============================================
 // Core Types
@@ -18,6 +19,7 @@ export interface StationRequirementItem {
   division: string;
   name: string;
   quantity: number; // how many needed, e.g. 1, 2, 3...
+  nilReturn?: boolean; // ✅ Added: whether this is a nil return
 }
 
 export type SubmissionStatus = 'draft' | 'submitted';
@@ -51,6 +53,7 @@ export interface StationSubmissionStatus {
     registersComplete: boolean;
     percentageComplete: number;
   };
+  isNilReturn?: boolean; // ✅ Added: whether this station submitted a nil return
 }
 
 export interface StationReport {
@@ -85,6 +88,8 @@ export interface StationRequirementSubmission {
   adminReviewedBy?: string;
   adminNotes?: string;
   reviewStatus?: ReviewStatus;
+  isNilReturn?: boolean; // ✅ Added: whether this is a nil return submission
+  nilReturnReason?: string; // ✅ Added: reason for nil return (optional)
 }
 
 export interface StationRequirementSummary {
@@ -97,6 +102,7 @@ export interface StationRequirementSummary {
   updatedAt: string;
   submitterName?: string;
   reviewStatus?: ReviewStatus;
+  isNilReturn?: boolean; // ✅ Added: whether this is a nil return
 }
 
 // ============================================
@@ -122,6 +128,8 @@ export interface CreateSubmissionInput {
   fileFolders: StationRequirementItem[];
   registers: StationRequirementItem[];
   status?: SubmissionStatus;
+  isNilReturn?: boolean; // ✅ Added
+  nilReturnReason?: string; // ✅ Added
 }
 
 export interface UpdateSubmissionInput {
@@ -131,6 +139,8 @@ export interface UpdateSubmissionInput {
   status?: SubmissionStatus;
   reviewStatus?: ReviewStatus;
   adminNotes?: string;
+  isNilReturn?: boolean; // ✅ Added
+  nilReturnReason?: string; // ✅ Added
 }
 
 export interface SubmitDraftInput {
@@ -182,6 +192,8 @@ export interface ReportRow {
   'Total Items': number;
   'Submitted At': string;
   'Last Updated': string;
+  'Nil Return'?: string; // ✅ Added: 'Yes' or 'No'
+  'Nil Return Reason'?: string; // ✅ Added: reason if nil return
 }
 
 export interface ReportSummary {
@@ -191,6 +203,7 @@ export interface ReportSummary {
   totalFileFolders: number;
   totalRegisters: number;
   completionRate: number;
+  nilReturns?: number; // ✅ Added: count of nil returns
 }
 
 export interface ReportData {
@@ -251,6 +264,7 @@ export interface AdminDashboardStats {
   submittedCount: number;
   notStartedCount: number;
   completionRate: number;
+  nilReturnCount: number; // ✅ Added
   recentActivity: Array<{
     id: string;
     station: string;
@@ -279,6 +293,7 @@ export interface SubmissionStats {
   notSubmitted: number;
   draftOnly: number;
   notStarted: number;
+  nilReturns: number; // ✅ Added
 }
 
 // ============================================
@@ -368,7 +383,7 @@ export const CASE_REGISTERS = {
     "Anti-Corruption and Economic Crimes Appeals Case Register",
     "Anti-Corruption and Economic Crimes Revision Case Register",
     "Anti-Corruption and Economic Crimes Miscellaneous Case Register",
-    "ACEC Judicial Review Register"  // ✅ Added
+    "ACEC Judicial Review Register"
   ],
   
   // C. CIVIL CASE REGISTERS
@@ -523,7 +538,7 @@ export const CASE_COLORS = {
 
   // Anti-Corruption & Economic Crimes
   "Anti-Corruption & Economic Crimes_Appeals": "Blue",
-  "Anti-Corruption & Economic Crimes_Judicial Review": "Dark Green",  // ✅ Corrected: Dark Green
+  "Anti-Corruption & Economic Crimes_Judicial Review": "Dark Green",
   "Anti-Corruption & Economic Crimes_Suit": "Maroon",
   "Anti-Corruption & Economic Crimes_Revision": "Neon Green",
   "Anti-Corruption & Economic Crimes_Miscellaneous": "Orange",
@@ -692,6 +707,17 @@ export function calculateTotals(submission: StationRequirementSubmission): {
   };
 }
 
+// ✅ Added: Check if submission is a nil return
+export function isNilReturn(submission: StationRequirementSubmission): boolean {
+  return submission.isNilReturn === true;
+}
+
+// ✅ Added: Check if any item has quantity > 0
+export function hasAnyItems(submission: StationRequirementSubmission): boolean {
+  const total = calculateTotals(submission);
+  return total.totalItems > 0;
+}
+
 // ============================================
 // Admin Dashboard Helper Functions
 // ============================================
@@ -793,7 +819,6 @@ export function getSubmissionStats(
   allStations: string[],
   submissions: StationRequirementSubmission[]
 ): SubmissionStats {
-  // Get latest submission per station
   const latestByStation = new Map<string, StationRequirementSubmission>();
   
   for (const sub of submissions) {
@@ -806,6 +831,7 @@ export function getSubmissionStats(
   let submitted = 0;
   let draftOnly = 0;
   let notStarted = 0;
+  let nilReturns = 0;
 
   for (const station of allStations) {
     const submission = latestByStation.get(station);
@@ -814,6 +840,9 @@ export function getSubmissionStats(
       notStarted++;
     } else if (submission.status === 'submitted') {
       submitted++;
+      if (submission.isNilReturn) {
+        nilReturns++;
+      }
     } else if (submission.status === 'draft') {
       draftOnly++;
     }
@@ -825,6 +854,7 @@ export function getSubmissionStats(
     notSubmitted: draftOnly + notStarted,
     draftOnly,
     notStarted,
+    nilReturns,
   };
 }
 
@@ -838,6 +868,7 @@ export function generateReportSummary(
 ): ReportSummary {
   const submitted = statusCounts['submitted'] || 0;
   const notSubmitted = statusCounts['not_submitted'] || 0;
+  const nilReturns = statusCounts['nil_return'] || 0;
 
   return {
     totalStations,
@@ -846,5 +877,6 @@ export function generateReportSummary(
     totalFileFolders: 0,
     totalRegisters: 0,
     completionRate: totalStations > 0 ? Math.round((submitted / totalStations) * 100) : 0,
+    nilReturns,
   };
 }

@@ -320,6 +320,7 @@ export const downloadReportController = catchAsync(
             .data-table tr:nth-child(even) { background-color: #f8fafc; }
             .badge-submitted { color: #065f46; font-weight: bold; }
             .badge-pending { color: #4b5563; font-weight: bold; }
+            .badge-nil { color: #8b5cf6; font-weight: bold; }
             .footer { text-align: center; font-size: 8pt; color: #9ca3af; margin-top: 30px; font-style: italic; }
           </style>
         </head>
@@ -340,6 +341,12 @@ export const downloadReportController = catchAsync(
               <td><div class="summary-label">Subordinate Courts</div><div class="summary-value">${summary.totalSubordinateCourts}</div></td>
               <td><div class="summary-label">Completion Rate</div><div class="summary-value">${summary.completionRate}%</div></td>
             </tr>
+            <tr>
+              <td colspan="6" style="background-color: #f3f0ff;">
+                <div class="summary-label">Nil Returns</div>
+                <div class="summary-value" style="color: #8b5cf6;">${summary.nilReturnCount || 0}</div>
+              </td>
+            </tr>
           </table>
           
           <h3>Station Details</h3>
@@ -353,12 +360,14 @@ export const downloadReportController = catchAsync(
                 <th style="text-align: center;">Subordinate Courts</th>
                 <th style="text-align: center;">Total</th>
                 <th style="text-align: center;">Status</th>
+                <th style="text-align: center;">Nil Return</th>
               </tr>
             </thead>
             <tbody>
               ${rows.map((row, index) => {
                 const status = row['Submission Status'] || 'Not Submitted';
                 const isSubmitted = status === 'Submitted';
+                const isNil = row['Nil Return'] || false;
                 return `
                   <tr>
                     <td style="text-align: center;">${index + 1}</td>
@@ -369,6 +378,9 @@ export const downloadReportController = catchAsync(
                     <td style="text-align: center;"><strong>${row['Total Items'] || 0}</strong></td>
                     <td style="text-align: center;" class="${isSubmitted ? 'badge-submitted' : 'badge-pending'}">
                       ${isSubmitted ? '✓ Submitted' : '○ Not Submitted'}
+                    </td>
+                    <td style="text-align: center;" class="${isNil ? 'badge-nil' : ''}">
+                      ${isNil ? '⚠️ Nil Return' : '—'}
                     </td>
                   </tr>
                 `;
@@ -493,20 +505,26 @@ export const downloadReportController = catchAsync(
         doc.fontSize(10).font('Helvetica-Bold').fillColor(valColor).text(summaryValues[i], cellX, currentY + 22, { width: colWidth, align: 'center' });
       });
 
+      // Add Nil Return row to summary
+      currentY += 46;
+      doc.fontSize(8).font('Helvetica').fillColor('#64748B')
+        .text(`Nil Returns: ${summary.nilReturnCount || 0}`, 40, currentY, { align: 'left' });
+
       // --- Table ---
-      currentY += 56;
+      currentY += 20;
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#1e3a5f').text('STATION DETAILS', 40, currentY);
       currentY += 15;
 
       const tableX = 40;
       const columns = [
         { label: '#', width: 25, align: 'center' },
-        { label: 'Station', width: 130, align: 'left' },
-        { label: 'Assigned DR', width: 120, align: 'left' },
-        { label: 'Court of Appeal', width: 60, align: 'center' },
-        { label: 'Subordinate Courts', width: 60, align: 'center' },
-        { label: 'Total', width: 50, align: 'center' },
-        { label: 'Status', width: 70, align: 'center' },
+        { label: 'Station', width: 115, align: 'left' },
+        { label: 'Assigned DR', width: 105, align: 'left' },
+        { label: 'Court of Appeal', width: 55, align: 'center' },
+        { label: 'Subordinate Courts', width: 55, align: 'center' },
+        { label: 'Total', width: 45, align: 'center' },
+        { label: 'Status', width: 60, align: 'center' },
+        { label: 'Nil Return', width: 55, align: 'center' },
       ];
 
       const drawTableHeader = (yPos: number) => {
@@ -538,6 +556,7 @@ export const downloadReportController = catchAsync(
 
         const status = row['Submission Status'] || 'Not Submitted';
         const isSubmitted = status === 'Submitted';
+        const isNil = row['Nil Return'] || false;
 
         let x = tableX;
         doc.fontSize(7.5).font('Helvetica').fillColor('#1E293B');
@@ -571,6 +590,14 @@ export const downloadReportController = catchAsync(
         const statusTextColor = isSubmitted ? '#065F46' : '#4B5563';
         doc.circle(x + 12, currentY + 8.5, 3).fill(statusColor);
         doc.fillColor(statusTextColor).text(status, x + 18, currentY + 5, { width: columns[6].width - 20, align: 'left' });
+        x += columns[6].width;
+
+        // Nil Return
+        if (isNil) {
+          doc.fillColor('#8B5CF6').text('⚠️ Yes', x + 4, currentY + 5, { width: columns[7].width - 8, align: 'center' });
+        } else {
+          doc.fillColor('#9CA3AF').text('—', x + 4, currentY + 5, { width: columns[7].width - 8, align: 'center' });
+        }
 
         currentY += 18;
       });

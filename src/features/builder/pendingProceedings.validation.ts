@@ -273,7 +273,44 @@ export const validateStation = (station: string): boolean => {
 };
 
 // ============================================================
-// 12. EXPORT INFERRED TYPES
+// 12. HELPER - Check if submission is nil return
+// ============================================================
+
+/**
+ * Checks if a submission is a nil return (all quantities are 0)
+ */
+export const isNilReturn = (
+  courtOfAppeal: PendingProceedingItem[],
+  subordinateCourts: PendingProceedingItem[]
+): boolean => {
+  const courtTotal = courtOfAppeal.reduce((sum, item) => sum + item.quantity, 0);
+  const subTotal = subordinateCourts.reduce((sum, item) => sum + item.quantity, 0);
+  return courtTotal === 0 && subTotal === 0;
+};
+
+/**
+ * Validates that a submission has at least one non-zero quantity
+ * (nil returns are allowed but tracked)
+ */
+export const validateNonNilSubmission = (
+  courtOfAppeal: PendingProceedingItem[],
+  subordinateCourts: PendingProceedingItem[]
+): { valid: boolean; message?: string } => {
+  const courtTotal = courtOfAppeal.reduce((sum, item) => sum + item.quantity, 0);
+  const subTotal = subordinateCourts.reduce((sum, item) => sum + item.quantity, 0);
+  
+  if (courtTotal === 0 && subTotal === 0) {
+    return {
+      valid: true,
+      message: 'Nil return submitted (all quantities are zero)',
+    };
+  }
+  
+  return { valid: true };
+};
+
+// ============================================================
+// 13. EXPORT INFERRED TYPES
 // ============================================================
 
 export type CreateSubmissionPayload = z.infer<typeof createSubmissionSchema>['body'];
